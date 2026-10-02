@@ -1,0 +1,9 @@
+node_modules/
+out/
+out-scripts/
+.backup/
+.pingis/
+__pycache__/
+*.vsix
+*.log
+.DS_Store

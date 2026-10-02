@@ -1,0 +1,113 @@
+{
+  "name": "pingis",
+  "displayName": "Pingis",
+  "description": "Two-agent (Executor + Critic) development assistant for VS Code. Launches its own pair of DeepSeek Automation API servers, keeps agents in isolated chats, manages the full lifecycle, tracks context, and uses a plan.md protocol for long tasks.",
+  "version": "0.3.0",
+  "publisher": "local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:pingis.panel",
+    "onCommand:pingis.start",
+    "onCommand:pingis.showLogs"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pingis",
+          "title": "Pingis",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "pingis": [
+        {
+          "type": "webview",
+          "id": "pingis.panel",
+          "name": "Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "pingis.start",
+        "title": "DeepSeek: Start task"
+      },
+      {
+        "command": "pingis.showLogs",
+        "title": "DeepSeek: Show logs"
+      }
+    ],
+    "configuration": {
+      "title": "Pingis",
+      "properties": {
+        "pingis.apiDir": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the DeepSeek Automation API directory. The extension reads .env and .api-key from there. If empty, pingis.apiBaseUrl and pingis.apiKey are used as fallback."
+        },
+        "pingis.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3000",
+          "description": "Fallback API base URL when pingis.apiDir is not set."
+        },
+        "pingis.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Fallback API key when pingis.apiDir is not set."
+        },
+        "pingis.taskTimeoutMinutes": {
+          "type": "number",
+          "default": 120,
+          "description": "Maximum task duration in minutes."
+        },
+        "pingis.execTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "description": "Timeout for a single execute script, in seconds. Increase for tasks with npm install or cargo build."
+        },
+        "pingis.apiPortExecutor": {
+          "type": "number",
+          "default": 3000,
+          "description": "Port for the Executor API server."
+        },
+        "pingis.apiPortCritic": {
+          "type": "number",
+          "default": 3001,
+          "description": "Port for the Critic API server."
+        },
+        "pingis.saveRawResponses": {
+          "type": "boolean",
+          "default": false,
+          "description": "Save raw JSON API responses to .pingis/raw/. Debug only — files accumulate fast."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "probe:api": "ts-node --project scripts/tsconfig.json scripts/probe-api.ts",
+    "probe:exec": "ts-node --project scripts/tsconfig.json scripts/probe-exec.ts",
+    "probe:cycle": "ts-node --project scripts/tsconfig.json scripts/probe-cycle.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.85.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "systeminformation": "^5.22.0"
+  },
+  "icon": "media/icon-marketplace.png"
+}

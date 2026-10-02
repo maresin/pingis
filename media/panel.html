@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 style-src {{cspSource}} 'unsafe-inline';
+                 script-src 'nonce-{{nonce}}';">
+  <link rel="stylesheet" href="{{css}}">
+  <title>Pingis</title>
+</head>
+<body>
+
+  <section id="view-welcome">
+    <h2>Pingis</h2>
+
+    <div id="workspace-info" class="workspace">…</div>
+
+    <p class="hint">
+      Describe a task — two agents (Executor and Critic) will solve it
+      in the current directory. Logs go to Output → Pingis.
+    </p>
+
+    <label for="name">Project name</label>
+    <input id="name" type="text" placeholder="todo-app">
+
+    <label for="description">Task description</label>
+    <textarea id="description" rows="8"
+              placeholder="What needs to be done? Can be left empty if the description is in attached files."></textarea>
+
+    <div class="row">
+      <button id="attach" class="secondary" type="button">Attach files</button>
+      <span id="attach-info" class="hint"></span>
+    </div>
+
+    <p class="hint" style="margin-top: 4px;">
+      Attachments are for task descriptions only (.txt, .md, .json, up to 256 KB).
+      Data files and large files: place them in the project directory and
+      reference the path in the description.
+    </p>
+
+    <ul id="attached-list" class="attached-list"></ul>
+
+    <button id="start" type="button" disabled>Start</button>
+  </section>
+
+  <section id="view-progress" hidden>
+    <h2 id="project-name"></h2>
+
+    <div class="status">
+      <div class="status-row">
+        <span class="who">Executor</span>
+        <span id="status-executor" class="state">—</span>
+        <span id="turn-executor" class="turns">0</span>
+      </div>
+      <div class="status-row">
+        <span class="who">Critic</span>
+        <span id="status-critic" class="state">—</span>
+        <span id="turn-critic" class="turns">0</span>
+      </div>
+    </div>
+
+    <div class="time">
+      <span id="elapsed">00:00</span>
+      <span class="hint"> / </span>
+      <span id="total">30:00</span>
+    </div>
+
+    <button id="stop" class="danger" type="button">Stop</button>
+  </section>
+
+  <section id="view-done" hidden>
+    <h2>Task complete</h2>
+    <p id="done-summary" class="hint"></p>
+    <button id="reset" type="button">New task</button>
+  </section>
+
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>
