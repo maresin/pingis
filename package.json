@@ -5,6 +5,14 @@
   "version": "0.3.0",
   "publisher": "local",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maresin/pingis.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maresin/pingis/issues"
+  },
+  "homepage": "https://github.com/maresin/pingis#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
