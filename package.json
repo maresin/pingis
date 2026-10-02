@@ -17,6 +17,7 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
     "Other"
   ],
   "activationEvents": [
@@ -117,5 +118,16 @@
   "dependencies": {
     "systeminformation": "^5.22.0"
   },
-  "icon": "media/icon-marketplace.png"
+  "icon": "media/icon-marketplace.png",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "deepseek",
+    "code-generation",
+    "code-review",
+    "two-agent",
+    "multi-agent",
+    "automation"
+  ]
 }
