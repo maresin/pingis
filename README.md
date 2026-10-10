@@ -22,7 +22,7 @@ The result is not "faster code". It's **code that has already been reviewed by t
 
 When you start a task, Pingis:
 
-1. Spins up **two independent DeepSeek Automation API servers** — one for the Executor (port 3000), one for the Critic (port 3001). Each has its own Chromium, its own chat session, its own API key.
+1. Spins up **two independent DeepSeek Automation API servers** — one for the Executor (port 3098), one for the Critic (port 3099). Each has its own Chromium, its own chat session, its own API key.
 2. Hands the task to the Executor, who explores the working directory and (for non-trivial tasks) proposes a plan.
 3. The Critic reviews the plan, then reviews each stage as the Executor completes it.
 4. When the Executor is done, the Critic does a final check and either approves or sends the work back.
@@ -55,8 +55,8 @@ Everything happens **inside your open project folder**. No files are created out
 | Setting | Default | Description |
 |---|---|---|
 | `pingis.apiDir` | `""` | Path to the DeepSeek Automation API directory. **Required.** Pingis reads `.env` from there and launches `npm start` in it. No files are created or modified in that directory. |
-| `pingis.apiPortExecutor` | `3000` | Port for the Executor's API server. |
-| `pingis.apiPortCritic` | `3001` | Port for the Critic's API server. |
+| `pingis.apiPortExecutor` | `3098` | Port for the Executor's API server. |
+| `pingis.apiPortCritic` | `3099` | Port for the Critic's API server. |
 | `pingis.taskTimeoutMinutes` | `120` | Maximum task duration in minutes. On expiry, the task stops and all files are preserved. |
 | `pingis.execTimeoutSeconds` | `120` | Timeout for a single `execute` script. Increase for tasks with `npm install` or `cargo build`. |
 | `pingis.saveRawResponses` | `false` | Save raw JSON API responses to `.pingis/raw/`. Debug only — files accumulate fast. |
@@ -212,7 +212,7 @@ DeepSeek Automation API drives a real browser, not a server API. This means:
 1. **Check the API manually:**
 
    ```bash
-   curl http://127.0.0.1:3000/health
+   curl http://127.0.0.1:3098/health
    # expect: {"status":"ok",...}
    ```
 
@@ -236,7 +236,7 @@ DeepSeek Automation API drives a real browser, not a server API. This means:
 - **One task at a time.** A second Start restarts the orchestrator.
 - **Only the Critic can finish a task.** The Executor has no `finalize` tool.
 - **Logs go to Output, not to the UI.** The sidebar shows only status.
-- **Ports 3000 and 3001 must be free.** Pingis kills whatever is listening on them, including a manually started API.
+- **Ports 3098 and 3099 must be free.** Pingis kills whatever is listening on them, including a manually started API.
 - **Not suited for:** GUI apps, mobile apps, long-running services, ML training, frontend SPAs, games. Anything that can't be verified from the terminal is out of scope.
 - **Best for:** CLI tools, data-processing scripts, REST APIs, parsers, algorithmic problems, tests for existing code.
 

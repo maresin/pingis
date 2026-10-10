@@ -9,8 +9,8 @@ const API_DIR = process.env.DS_API_DIR ?? process.argv[2] ?? '';
 const TASK = process.env.DS_TASK
   ?? 'Create a file hello.txt with the text "hello". Then write a script hello.py that reads this file and prints its content. Verify the script works.';
 
-const cfgE = loadApiConfig(API_DIR, 'http://127.0.0.1:3000', '', 'executor');
-const cfgC = loadApiConfig(API_DIR, 'http://127.0.0.1:3001', '', 'critic');
+const cfgE = loadApiConfig(API_DIR, 'http://127.0.0.1:3098', '', 'executor');
+const cfgC = loadApiConfig(API_DIR, 'http://127.0.0.1:3099', '', 'critic');
 
 if (!cfgE.apiKey || !cfgC.apiKey) {
   console.error('No API keys in ~/.pingis/*/.api-key. Start both APIs first.');

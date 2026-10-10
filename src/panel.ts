@@ -165,8 +165,8 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     const fallbackKey    = cfg.get<string>('apiKey') ?? '';
     const timeoutMin     = cfg.get<number>('taskTimeoutMinutes') ?? 30;
     const execTimeoutSec = cfg.get<number>('execTimeoutSeconds') ?? 120;
-    const portE          = cfg.get<number>('apiPortExecutor') ?? 3000;
-    const portC          = cfg.get<number>('apiPortCritic') ?? 3001;
+    const portE          = cfg.get<number>('apiPortExecutor') ?? 3098;
+    const portC          = cfg.get<number>('apiPortCritic') ?? 3099;
 
     if (!apiDir) {
       this.done(

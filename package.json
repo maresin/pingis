@@ -85,12 +85,12 @@
         },
         "pingis.apiPortExecutor": {
           "type": "number",
-          "default": 3000,
+          "default": 3098,
           "description": "Port for the Executor API server."
         },
         "pingis.apiPortCritic": {
           "type": "number",
-          "default": 3001,
+          "default": 3099,
           "description": "Port for the Critic API server."
         },
         "pingis.saveRawResponses": {

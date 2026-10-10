@@ -10,7 +10,7 @@ const API_DIR = process.env.DS_API_DIR ?? process.argv[2] ?? '';
 
 const cfg = loadApiConfig(
   API_DIR,
-  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3098',
   ''
 );
 
