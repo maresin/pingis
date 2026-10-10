@@ -226,6 +226,40 @@ export class ApiProcess {
     });
   }
 
+  private logSharedStateInstructions(): void {
+    const log = this.opts.logger;
+    log.raw('');
+    log.raw('==================================================');
+    log.raw('  SHARED COOKIE FILE NOT FOUND');
+    log.raw('==================================================');
+    log.raw('');
+    log.raw(`Expected at: ${this.sharedStatePath}`);
+    log.raw('');
+    log.raw('Pingis runs two agents (Executor and Critic) that share');
+    log.raw('a single DeepSeek login. If each agent logs in independently,');
+    log.raw('Cloudflare Turnstile locks both automated browsers into an');
+    log.raw('infinite captcha loop.');
+    log.raw('');
+    log.raw('Prepare the shared cookie file ONCE, before the first run:');
+    log.raw('');
+    log.raw('  1. Log in to https://chat.deepseek.com in Firefox.');
+    log.raw('     (Not Chrome, not the automated browser.)');
+    log.raw('  2. Install the Cookie-Editor extension.');
+    log.raw('  3. On chat.deepseek.com: Cookie-Editor -> Export -> JSON.');
+    log.raw('     Save the result to /tmp/cookies.json.');
+    log.raw('  4. Convert to Playwright storageState:');
+    log.raw('');
+    log.raw('       mkdir -p ~/.pingis');
+    log.raw('       python3 cookies-to-state.py /tmp/cookies.json ' +
+            this.sharedStatePath);
+    log.raw(`       chmod 600 ${this.sharedStatePath}`);
+    log.raw('');
+    log.raw('Full guide:');
+    log.raw('  https://github.com/maresin/deepseek-automation-api/');
+    log.raw('    blob/main/examples/multi-agent/README.md');
+    log.raw('');
+  }
+
   private async waitReady(): Promise<void> {
     const timeout = this.opts.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
     const deadline = Date.now() + timeout;
