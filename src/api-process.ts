@@ -31,11 +31,26 @@ export class ApiProcess {
   get baseUrl(): string { return `http://127.0.0.1:${this.opts.port}`; }
   get keyPath(): string { return path.join(this.stateDir, '.api-key'); }
 
+  // SHARED cookie file used by both agents (Executor and Critic).
+  // Prepared once, manually, from a normal browser session.
+  // See README, "First-time setup: shared cookie state".
+  private get sharedStatePath(): string {
+    return path.join(os.homedir(), '.pingis', 'shared-state.json');
+  }
+
   async ensureRunning(): Promise<void> {
     if (!fs.existsSync(path.join(this.opts.apiDir, '.env'))) {
       throw new Error(
         `File not found: ${path.join(this.opts.apiDir, '.env')}. ` +
         `Set a valid pingis.apiDir in settings.`
+      );
+    }
+
+    if (!fs.existsSync(this.sharedStatePath)) {
+      this.logSharedStateInstructions();
+      throw new Error(
+        `Shared cookie file not found at ${this.sharedStatePath}. ` +
+        `See Output -> Pingis for setup instructions.`
       );
     }
 
@@ -149,11 +164,19 @@ export class ApiProcess {
 
     const overrides: Record<string, string> = {
       PORT: String(this.opts.port),
-      DEEPSEEK_STATE_PATH: path.join(this.stateDir, 'state.json'),
+      // SHARED cookie file — same for both agents.
+      // Login happens once, in a normal browser; both agents reuse it.
+      DEEPSEEK_STATE_PATH: this.sharedStatePath,
+      // Per-agent state — must be unique per process.
       DEEPSEEK_CHAT_STATE_PATH: path.join(this.stateDir, 'chat_state.json'),
       DEEPSEEK_API_KEY_PATH: path.join(this.stateDir, '.api-key'),
       DEEPSEEK_UPLOAD_DIR: path.join(this.stateDir, 'uploads'),
-      RAG_DATA_DIR: path.join(this.stateDir, 'rag_data')
+      RAG_DATA_DIR: path.join(this.stateDir, 'rag_data'),
+      // Force empty credentials. The automated browser must never
+      // attempt login — that path leads into the Cloudflare captcha
+      // loop. If cookies expire, we want a clean failure.
+      DEEPSEEK_EMAIL: '',
+      DEEPSEEK_PASSWORD: ''
     };
 
     this.opts.logger.event('orchestrator', 'api_spawn', {

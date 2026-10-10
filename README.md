@@ -50,6 +50,66 @@ Everything happens **inside your open project folder**. No files are created out
 
 4. **Configure:** open Settings (`Ctrl+,`), search `Pingis`, set **Api Dir** to the path of your DeepSeek Automation API clone.
 
+## First-time setup: shared cookie state
+
+Pingis runs two agents (Executor and Critic) that share a single DeepSeek
+login. This is deliberate. If each agent logs in independently, DeepSeek's
+Cloudflare Turnstile protection can lock both automated browsers into an
+infinite captcha loop — correct answers rejected because the browser's
+aggregate trust score is below threshold. Two simultaneous logins from one
+IP make this worse.
+
+The fix is to log in **once**, in a normal browser, and share the
+resulting cookie file. The automated browsers never visit the login page.
+
+### One-time setup
+
+1. **Log in** to <https://chat.deepseek.com> in Firefox. (Not Chrome, not
+   the automated browser — Firefox is currently more trusted by
+   Cloudflare's heuristics.)
+
+2. **Install** the Cookie-Editor extension (available for Firefox and
+   Chrome).
+
+3. On `chat.deepseek.com`, click Cookie-Editor → **Export → JSON**. Save
+   the result to `/tmp/cookies.json`.
+
+4. **Convert** to Playwright's `storageState` format. The converter ships
+   with DeepSeek Automation API:
+
+   ```bash
+   mkdir -p ~/.pingis
+   python3 /path/to/deepseek-automation-api/examples/multi-agent/cookies-to-state.py \
+     /tmp/cookies.json ~/.pingis/shared-state.json
+   chmod 600 ~/.pingis/shared-state.json
+   ```
+
+5. **Verify** the Cloudflare pass token is present:
+
+   ```bash
+   jq '.cookies[].name' ~/.pingis/shared-state.json | grep cf_clearance
+   ```
+
+   If `cf_clearance` is missing, the export was taken before Cloudflare's
+   challenge completed. Re-login, wait for the chat UI to fully load, then
+   re-export.
+
+### What happens on first run
+
+Pingis reads `~/.pingis/shared-state.json`, starts both API processes with
+the same cookies, and each process registers its own API key **without
+logging in**. Startup takes 10–30 seconds.
+
+### When cookies expire
+
+DeepSeek cookies live 1–3 months. When they expire, Pingis shows
+`Failed to start API`, and the log contains
+`📌 On login page, attempting auto-login...`. Fix: repeat steps 1–4. Chat
+history and RAG indexes are not affected.
+
+Full guide:
+[Building applications — Multi-agent](https://github.com/maresin/deepseek-automation-api/blob/main/docs/guides/building-applications.md).
+
 ## Settings
 
 | Setting | Default | Description |
