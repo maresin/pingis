@@ -70,11 +70,11 @@ function shortSummary(r: LogRecord): string {
     case 'http':
       return `${r.method ?? '?'} ${r.endpoint ?? '?'} → ${r.status ?? '?'} (${r.duration_ms ?? '?'}ms)`;
     case 'api_spawn':
-      return `spawn ${r.agent} on port ${r.port}`;
+      return `build/start at ${r.agents_dir ?? r.script ?? '?'}`;
     case 'api_ready':
-      return `${r.agent} ready on ${r.port}`;
+      return `agents ready at ${r.agents_dir ?? '?'}${r.reused ? ' (reused)' : ''}`;
     case 'api_exit':
-      return `${r.agent} exit code=${r.code} (${r.reason ?? '?'})`;
+      return `agents stopped (${r.reason ?? '?'})`;
     case 'api_cleanup': {
       const pids = (r.killed_pids as number[] | undefined) ?? [];
       return `killed ${pids.length} process(es) on port ${r.port}`;
