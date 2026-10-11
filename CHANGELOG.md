@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-11
+
+### Added
+
+- HELP protocol for joint debugging. When the Executor gets stuck
+  (three or more identical failures, or no progress), it sends a
+  structured `HELP:` message to the Critic with the problem, the exact
+  error, what it has already tried, and the relevant file paths. The
+  Critic reads the files, reproduces the error, and replies with a
+  concrete fix, a different approach, or `IMPOSSIBLE`. This replaces
+  the previous 5-attempt limit; the loop runs until the problem is
+  solved or the task times out.
+- `TIME_LIMIT:` handler in the Critic: on task timeout, finalizes with
+  an honest summary instead of a hard stop.
+
+### Fixed
+
+- Multi-agent deployment is now driven by `make-multi-agent.sh` from
+  DeepSeek Automation API. Pingis builds and manages the deployment
+  under `~/.pingis/deepseek-agents/` itself; the user no longer touches
+  cookies, ports, keys, or scripts.
+- Ports moved from 3000/3001 to 3098/3099 to avoid collisions with the
+  user's own project and with a manually started DeepSeek API.
+- Log summaries for `api_spawn` / `api_ready` / `api_exit` no longer
+  print `undefined` after the multi-agent refactor.
+
+### Changed
+
+- Settings surface reduced to `pingis.apiDir` (plus timeouts). All
+  port/key/URL settings are gone; values come from the generated
+  deployment.
+
 ## [0.3.0] - 2026-10-02
 
 ### Added
