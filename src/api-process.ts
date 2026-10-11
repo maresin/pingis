@@ -65,7 +65,6 @@ export class ApiProcess {
 
     await this.spawnProcess();
     await this.waitReady();
-    await this.registerSession();
   }
 
   stop(): void {
@@ -259,51 +258,6 @@ export class ApiProcess {
     log.raw('  https://github.com/maresin/deepseek-automation-api/');
     log.raw('    blob/main/examples/multi-agent/README.md');
     log.raw('');
-  }
-
-  private async registerSession(): Promise<void> {
-    // With credentials empty (as Pingis sets them), the API does not
-    // auto-register. It waits for a manual POST /v1/register. This
-    // call uses the cookies from shared-state.json — no login, no
-    // captcha. On success, the API writes DEEPSEEK_API_KEY_PATH.
-    const url = `${this.baseUrl}/v1/register`;
-    this.opts.logger.raw(`[api] POST ${url} (cookie-based registration)`);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 180_000);
-
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-        signal: controller.signal
-      });
-
-      if (!r.ok) {
-        const detail = await safeText(r);
-        this.opts.logger.raw(
-          `[api] register FAILED: HTTP ${r.status} ${detail}`
-        );
-        throw new Error(
-          `Cookie-based registration failed (HTTP ${r.status}). ` +
-          `The shared-state.json cookies may be stale. ` +
-          `Re-export them from a normal browser.`
-        );
-      }
-
-      const text = await r.text();
-      this.opts.logger.raw(
-        `[api] register OK: ${text.slice(0, 200)}`
-      );
-    } catch (e: any) {
-      if (e?.name === 'AbortError') {
-        throw new Error('Registration timed out after 180s.');
-      }
-      throw e;
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   private async waitReady(): Promise<void> {
