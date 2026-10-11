@@ -1,341 +1,229 @@
-import { spawn, execSync, ChildProcess } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { AgentName } from './types';
 import { Logger } from './log';
+import {
+  AgentsDeployment,
+  deploymentExists,
+  loadAgentsDeployment
+} from './config';
 
-const IS_WINDOWS = process.platform === 'win32';
+const STARTUP_TIMEOUT_MS = 240_000;
 
-export interface ApiProcessOptions {
-  apiDir: string;
-  port: number;
-  who: AgentName;
-  logger: Logger;
-  startupTimeoutMs?: number;
-}
-
-const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
-
-export class ApiProcess {
-  private child: ChildProcess | null = null;
+/**
+ * Orchestrates the multi-agent deployment produced by
+ * make-multi-agent.sh.
+ *
+ * Lifecycle:
+ *   ensureRunning():
+ *     - if deployment folder missing → build it with make-multi-agent.sh
+ *     - if both agents already answer /v1/context/status → nothing to do
+ *     - else → run scripts/start-all.sh, wait for readiness
+ *   stop():
+ *     - if we started the agents ourselves → run scripts/stop-all.sh
+ */
+export class AgentsProcess {
+  private deployment: AgentsDeployment;
   private startedByUs = false;
-  private stateDir: string;
 
-  constructor(private opts: ApiProcessOptions) {
-    const home = os.homedir();
-    this.stateDir = path.join(home, '.pingis', opts.who);
+  constructor(
+    apiDir: string,
+    private log: Logger
+  ) {
+    this.deployment = loadAgentsDeployment(apiDir);
   }
 
-  get port(): number { return this.opts.port; }
-  get baseUrl(): string { return `http://127.0.0.1:${this.opts.port}`; }
-  get keyPath(): string { return path.join(this.stateDir, '.api-key'); }
-
-  // SHARED cookie file used by both agents (Executor and Critic).
-  // Prepared once, manually, from a normal browser session.
-  // See README, "First-time setup: shared cookie state".
-  private get sharedStatePath(): string {
-    return path.join(os.homedir(), '.pingis', 'shared-state.json');
-  }
+  get executor() { return this.deployment.executor; }
+  get critic() { return this.deployment.critic; }
 
   async ensureRunning(): Promise<void> {
-    if (!fs.existsSync(path.join(this.opts.apiDir, '.env'))) {
-      throw new Error(
-        `File not found: ${path.join(this.opts.apiDir, '.env')}. ` +
-        `Set a valid pingis.apiDir in settings.`
-      );
+    if (!deploymentExists(this.deployment)) {
+      this.buildDeployment();
+      // reload after build — ports and keys are now on disk
+      this.deployment = loadAgentsDeployment(this.deployment.apiDir);
     }
 
-    if (!fs.existsSync(this.sharedStatePath)) {
-      this.logSharedStateInstructions();
-      throw new Error(
-        `Shared cookie file not found at ${this.sharedStatePath}. ` +
-        `See Output -> Pingis for setup instructions.`
-      );
+    if (await this.bothReady()) {
+      this.log.event('orchestrator', 'api_ready', {
+        agents_dir: this.deployment.root,
+        reused: true
+      });
+      return;
     }
 
-    this.killPortOccupants();
-
-    fs.mkdirSync(this.stateDir, { recursive: true });
-
-    // Delete stale .api-key; otherwise waitForKeyFile returns
-    // instantly, we send the old key, and the API replies 401/503.
-    const staleKey = path.join(this.stateDir, '.api-key');
-    try { fs.unlinkSync(staleKey); } catch { /* already gone */ }
-
-    await this.spawnProcess();
-    await this.waitReady();
-  }
-
-  stop(): void {
-    if (!this.startedByUs || !this.child) return;
-    const pid = this.child.pid;
-    this.startedByUs = false;
-    this.child = null;
-    if (!pid) return;
-
-    this.opts.logger.event('orchestrator', 'api_exit', {
-      agent: this.opts.who, code: 0, reason: 'stop_requested'
+    const script = path.join(this.deployment.root, 'scripts', 'start-all.sh');
+    this.log.event('orchestrator', 'api_spawn', {
+      agents_dir: this.deployment.root,
+      script
     });
 
-    killProcessTree(pid);
-  }
-
-  private killPortOccupants(): void {
-    const port = this.opts.port;
-
-    if (IS_WINDOWS) {
-      this.killPortWindows(port);
-    } else {
-      this.killPortUnix(port);
-    }
-  }
-
-  private killPortWindows(port: number): void {
-    let pids: number[] = [];
-
-    try {
-      // netstat -ano: last column is PID. Filter to LISTENING.
-      const out = execSync(`netstat -ano | findstr :${port}`, {
-        encoding: 'utf-8',
-        windowsHide: true
-      });
-      const seen = new Set<number>();
-      for (const line of out.split(/\r?\n/)) {
-        if (!line.includes('LISTENING')) continue;
-        const m = line.trim().match(/(\d+)\s*$/);
-        if (!m) continue;
-        const pid = parseInt(m[1], 10);
-        if (Number.isFinite(pid) && pid > 0) seen.add(pid);
-      }
-      pids = [...seen];
-    } catch {
-      // findstr found nothing -> port is free.
-    }
-
-    for (const pid of pids) {
-      try {
-        execSync(`taskkill /F /PID ${pid}`, {
-          stdio: 'ignore',
-          windowsHide: true
-        });
-      } catch { /* ignore */ }
-    }
-
-    if (pids.length > 0) {
-      this.opts.logger.event('orchestrator', 'api_cleanup', {
-        agent: this.opts.who, port, killed_pids: pids
-      });
-      try { execSync('timeout /t 1 /nobreak >nul', { stdio: 'ignore', windowsHide: true }); } catch {}
-    }
-  }
-
-  private killPortUnix(port: number): void {
-    let pids: number[] = [];
-
-    try {
-      const out = execSync(`lsof -ti:${port} 2>/dev/null || true`, {
-        encoding: 'utf-8'
-      }).trim();
-      if (out) {
-        pids = out.split(/\s+/).filter(Boolean).map(s => parseInt(s, 10));
-      }
-    } catch {
-      try {
-        execSync(`fuser -k ${port}/tcp 2>/dev/null || true`);
-      } catch { /* ignore */ }
-    }
-
-    for (const pid of pids) {
-      if (!Number.isFinite(pid)) continue;
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
-    }
-
-    if (pids.length > 0) {
-      this.opts.logger.event('orchestrator', 'api_cleanup', {
-        agent: this.opts.who, port, killed_pids: pids
-      });
-      try { execSync('sleep 1'); } catch {}
-    }
-  }
-
-  private async spawnProcess(): Promise<void> {
-    const envVars = readEnv(path.join(this.opts.apiDir, '.env'));
-
-    const overrides: Record<string, string> = {
-      PORT: String(this.opts.port),
-      // SHARED cookie file — same for both agents.
-      // Login happens once, in a normal browser; both agents reuse it.
-      DEEPSEEK_STATE_PATH: this.sharedStatePath,
-      // Per-agent state — must be unique per process.
-      DEEPSEEK_CHAT_STATE_PATH: path.join(this.stateDir, 'chat_state.json'),
-      DEEPSEEK_API_KEY_PATH: path.join(this.stateDir, '.api-key'),
-      DEEPSEEK_UPLOAD_DIR: path.join(this.stateDir, 'uploads'),
-      RAG_DATA_DIR: path.join(this.stateDir, 'rag_data'),
-      // Force empty credentials. The automated browser must never
-      // attempt login — that path leads into the Cloudflare captcha
-      // loop. If cookies expire, we want a clean failure.
-      DEEPSEEK_EMAIL: '',
-      DEEPSEEK_PASSWORD: ''
-    };
-
-    this.opts.logger.event('orchestrator', 'api_spawn', {
-      agent: this.opts.who,
-      api_dir: this.opts.apiDir,
-      port: this.opts.port,
-      state_dir: this.stateDir
-    });
-
-    this.child = spawn('npm', ['start'], {
-      cwd: this.opts.apiDir,
-      env: { ...process.env, ...envVars, ...overrides },
-      shell: true,
-      detached: true,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    await this.runScriptSync(script, 'start-all.sh');
 
     this.startedByUs = true;
 
-    const prefix = this.opts.who === 'executor' ? '[api-e]' : '[api-c]';
-    const forward = (stream: NodeJS.ReadableStream) => {
-      stream.on('data', (chunk: Buffer) => {
-        const text = chunk.toString('utf-8');
-        for (const line of text.split(/\r?\n/)) {
-          if (line.trim()) this.opts.logger.raw(`${prefix} ${line}`);
-        }
-      });
-    };
-    if (this.child.stdout) forward(this.child.stdout);
-    if (this.child.stderr) forward(this.child.stderr);
+    await this.waitBothReady(STARTUP_TIMEOUT_MS);
 
-    this.child.on('exit', (code) => {
-      if (this.startedByUs) {
-        this.opts.logger.event('orchestrator', 'api_exit', {
-          agent: this.opts.who, code: code ?? -1, reason: 'unexpected'
-        });
-      }
-      this.startedByUs = false;
-      this.child = null;
-    });
-
-    this.child.on('error', (err) => {
-      this.opts.logger.event('orchestrator', 'api_exit', {
-        agent: this.opts.who, code: -1, reason: 'spawn_error', error: String(err)
-      });
+    this.log.event('orchestrator', 'api_ready', {
+      agents_dir: this.deployment.root,
+      reused: false
     });
   }
 
-  private logSharedStateInstructions(): void {
-    const log = this.opts.logger;
-    log.raw('');
-    log.raw('==================================================');
-    log.raw('  SHARED COOKIE FILE NOT FOUND');
-    log.raw('==================================================');
-    log.raw('');
-    log.raw(`Expected at: ${this.sharedStatePath}`);
-    log.raw('');
-    log.raw('Pingis runs two agents (Executor and Critic) that share');
-    log.raw('a single DeepSeek login. If each agent logs in independently,');
-    log.raw('Cloudflare Turnstile locks both automated browsers into an');
-    log.raw('infinite captcha loop.');
-    log.raw('');
-    log.raw('Prepare the shared cookie file ONCE, before the first run:');
-    log.raw('');
-    log.raw('  1. Log in to https://chat.deepseek.com in Firefox.');
-    log.raw('     (Not Chrome, not the automated browser.)');
-    log.raw('  2. Install the Cookie-Editor extension.');
-    log.raw('  3. On chat.deepseek.com: Cookie-Editor -> Export -> JSON.');
-    log.raw('     Save the result to /tmp/cookies.json.');
-    log.raw('  4. Convert to Playwright storageState:');
-    log.raw('');
-    log.raw('       mkdir -p ~/.pingis');
-    log.raw('       python3 cookies-to-state.py /tmp/cookies.json ' +
-            this.sharedStatePath);
-    log.raw(`       chmod 600 ${this.sharedStatePath}`);
-    log.raw('');
-    log.raw('Full guide:');
-    log.raw('  https://github.com/maresin/deepseek-automation-api/');
-    log.raw('    blob/main/examples/multi-agent/README.md');
-    log.raw('');
+  stop(): void {
+    if (!this.startedByUs) return;
+    this.startedByUs = false;
+
+    const script = path.join(this.deployment.root, 'scripts', 'stop-all.sh');
+    if (!fs.existsSync(script)) return;
+
+    this.log.event('orchestrator', 'api_exit', {
+      reason: 'stop_requested',
+      script
+    });
+
+    const child = spawn(`bash "${script}"`, {
+      cwd: this.deployment.root,
+      shell: true,
+      detached: false,
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+    child.on('error', () => { /* ignore */ });
   }
 
-  private async waitReady(): Promise<void> {
-    const timeout = this.opts.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
-    const deadline = Date.now() + timeout;
+  // --- deployment build ---
+
+  private buildDeployment(): void {
+    const script = path.join(
+      this.deployment.apiDir, 'tools', 'make-multi-agent.sh'
+    );
+    if (!fs.existsSync(script)) {
+      throw new Error(
+        `make-multi-agent.sh not found: ${script}. ` +
+        `Update your DeepSeek Automation API clone.`
+      );
+    }
+
+    const targetRoot = path.dirname(this.deployment.root); // ~/.pingis
+    fs.mkdirSync(targetRoot, { recursive: true });
+
+    this.log.event('orchestrator', 'api_spawn', {
+      reason: 'build_deployment',
+      script,
+      target: targetRoot
+    });
+
+    const result = runSync(
+      `bash "${script}" "${targetRoot}" --agents 2 --force`,
+      targetRoot
+    );
+
+    if (result.code !== 0) {
+      throw new Error(
+        `make-multi-agent.sh failed (exit ${result.code}).\n` +
+        `${result.stderr || result.stdout}`
+      );
+    }
+
+    this.log.raw('[agents] deployment built: ' + this.deployment.root);
+  }
+
+  // --- readiness ---
+
+  private async bothReady(): Promise<boolean> {
+    const [a, b] = await Promise.all([
+      this.pingContextStatus(this.deployment.executor),
+      this.pingContextStatus(this.deployment.critic)
+    ]);
+    return a && b;
+  }
+
+  private async waitBothReady(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (await this.ping()) {
-        this.opts.logger.event('orchestrator', 'api_ready', {
-          agent: this.opts.who,
-          port: this.opts.port,
-          state_dir: this.stateDir
-        });
-        return;
-      }
-      await sleep(1000);
+      if (await this.bothReady()) return;
+      await sleep(2000);
     }
     throw new Error(
-      `API (${this.opts.who}) did not respond at ${this.baseUrl} ` +
-      `within ${Math.round(timeout / 1000)}s. Check Output → Pingis.`
+      `Agents did not become ready within ${Math.round(timeoutMs / 1000)}s. ` +
+      `Check ${this.deployment.root}/agents/agent-1/agent.log and agent-2.`
     );
   }
 
-  private async ping(): Promise<boolean> {
+  private async pingContextStatus(agent: { port: number; apiKey: string }): Promise<boolean> {
+    if (!agent.port || !agent.apiKey) return false;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000);
-      const r = await fetch(`${this.baseUrl}/health`, { signal: controller.signal });
-      clearTimeout(timer);
-      return r.ok;
+      const t = setTimeout(() => controller.abort(), 2000);
+      const r = await fetch(
+        `http://127.0.0.1:${agent.port}/v1/context/status`,
+        {
+          headers: { Authorization: `Bearer ${agent.apiKey}` },
+          signal: controller.signal
+        }
+      );
+      clearTimeout(t);
+      return r.status === 200;
     } catch {
       return false;
     }
   }
-}
 
-function killProcessTree(pid: number): void {
-  if (IS_WINDOWS) {
-    try {
-      execSync(`taskkill /F /T /PID ${pid}`, {
-        stdio: 'ignore',
-        windowsHide: true
-      });
-    } catch { /* already dead */ }
-    return;
-  }
+  // --- scripts ---
 
-  try { process.kill(-pid, 'SIGTERM'); } catch { /* already dead */ }
-  setTimeout(() => {
-    try { process.kill(-pid, 'SIGKILL'); } catch { /* ignore */ }
-  }, 8000);
-}
+  private async runScriptSync(script: string, label: string): Promise<void> {
+    this.log.raw(`[agents] running ${label}`);
+    const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
+      (resolve) => {
+        const child = spawn(`bash "${script}"`, {
+          cwd: this.deployment.root,
+          shell: true,
+          detached: false,
+          windowsHide: true
+        });
+        let stdout = '', stderr = '';
+        child.stdout.on('data', (c: Buffer) => {
+          const s = c.toString('utf-8');
+          stdout += s;
+          for (const line of s.split(/\r?\n/)) {
+            if (line.trim()) this.log.raw(`[agents] ${line}`);
+          }
+        });
+        child.stderr.on('data', (c: Buffer) => {
+          const s = c.toString('utf-8');
+          stderr += s;
+          for (const line of s.split(/\r?\n/)) {
+            if (line.trim()) this.log.raw(`[agents] ${line}`);
+          }
+        });
+        child.on('exit', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+        child.on('error', (e) => resolve({ code: -1, stdout, stderr: String(e) }));
+      }
+    );
 
-function readEnv(file: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!fs.existsSync(file)) return out;
-  const text = fs.readFileSync(file, 'utf-8');
-  for (const line of text.split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) continue;
-    const eq = t.indexOf('=');
-    if (eq < 0) continue;
-    const key = t.slice(0, eq).trim();
-    let val = t.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
+    if (result.code !== 0) {
+      throw new Error(
+        `${label} failed (exit ${result.code}).\n` +
+        `${result.stderr.split('\n').slice(-10).join('\n')}`
+      );
     }
-    out[key] = val;
   }
-  return out;
+}
+
+function runSync(cmd: string, cwd: string): { code: number; stdout: string; stderr: string } {
+  const { execSync } = require('child_process');
+  try {
+    const stdout = execSync(cmd, { cwd, encoding: 'utf-8', shell: true, windowsHide: true });
+    return { code: 0, stdout, stderr: '' };
+  } catch (e: any) {
+    return {
+      code: e.status ?? -1,
+      stdout: String(e.stdout ?? ''),
+      stderr: String(e.stderr ?? e.message ?? '')
+    };
+  }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(res => setTimeout(res, ms));
-}
-
-
-async function safeText(r: Response): Promise<string> {
-  try { return (await r.text()).slice(0, 300); }
-  catch { return ''; }
 }

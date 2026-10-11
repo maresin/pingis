@@ -61,17 +61,7 @@
         "pingis.apiDir": {
           "type": "string",
           "default": "",
-          "description": "Path to the DeepSeek Automation API directory. The extension reads .env and .api-key from there. If empty, pingis.apiBaseUrl and pingis.apiKey are used as fallback."
-        },
-        "pingis.apiBaseUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:3000",
-          "description": "Fallback API base URL when pingis.apiDir is not set."
-        },
-        "pingis.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Fallback API key when pingis.apiDir is not set."
+          "description": "Path to your clone of deepseek-automation-api. Pingis builds the multi-agent deployment (~/.pingis/deepseek-agents/) itself from this clone and manages the agents automatically."
         },
         "pingis.taskTimeoutMinutes": {
           "type": "number",
@@ -82,16 +72,6 @@
           "type": "number",
           "default": 120,
           "description": "Timeout for a single execute script, in seconds. Increase for tasks with npm install or cargo build."
-        },
-        "pingis.apiPortExecutor": {
-          "type": "number",
-          "default": 3098,
-          "description": "Port for the Executor API server."
-        },
-        "pingis.apiPortCritic": {
-          "type": "number",
-          "default": 3099,
-          "description": "Port for the Critic API server."
         },
         "pingis.saveRawResponses": {
           "type": "boolean",

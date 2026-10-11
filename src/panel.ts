@@ -10,12 +10,12 @@ import {
   WebviewToExt
 } from './types';
 import { ApiClient } from './api';
-import { ApiProcess } from './api-process';
+import { AgentsProcess } from './api-process';
 import { Executor } from './executor';
 import { Logger, LogSink } from './log';
 import { PanelLike, Orchestrator } from './orchestrator';
 import { buildSystemPrompts } from './prompts';
-import { loadApiConfig } from './config';
+import { loadAgentsDeployment } from './config';
 import { probeResources } from './resources';
 
 const ATTACHMENTS_DIR = '.pingis/attachments';
@@ -30,8 +30,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   private orchestrator?: Orchestrator;
   private output?: vscode.OutputChannel;
   private log?: Logger;
-  private procE?: ApiProcess;
-  private procC?: ApiProcess;
+  private agents?: AgentsProcess;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private ctx: vscode.ExtensionContext) {}
@@ -108,10 +107,8 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   }
 
   private stopApiProcesses(): void {
-    this.procE?.stop();
-    this.procC?.stop();
-    this.procE = undefined;
-    this.procC = undefined;
+    this.agents?.stop();
+    this.agents = undefined;
   }
 
   private async onStart(
@@ -364,21 +361,6 @@ function makeNonce(): string {
 }
 
 
-async function waitForKeyFile(keyPath: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const s = fs.readFileSync(keyPath, 'utf-8').trim();
-      if (s.length > 0) return;
-    } catch {
-      // file not yet present — wait
-    }
-    await new Promise(res => setTimeout(res, 500));
-  }
-  throw new Error(
-    `API key did not appear within ${Math.round(timeoutMs / 1000)}s: ${keyPath}`
-  );
-}
 
 
 // Internal API noise that clutters the Output. Show only

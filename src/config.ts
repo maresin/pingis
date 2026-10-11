@@ -1,82 +1,101 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AgentName } from './types';
 
-export interface ApiConfig {
-  baseUrl: string;
+export interface AgentEndpoint {
+  name: string;      // "agent-1" | "agent-2"
+  dir: string;       // absolute path to agent-N/
+  port: number;
   apiKey: string;
-  source: 'apikey-file' | 'env' | 'settings';
-  maxContextChars: number;
 }
 
-const DEFAULT_CONTEXT_CHARS = 1_000_000;
-
-export function stateDirFor(who: AgentName): string {
-  return path.join(os.homedir(), '.pingis', who);
-}
-
-export function apiKeyPathFor(who: AgentName): string {
-  return path.join(stateDirFor(who), '.api-key');
+export interface AgentsDeployment {
+  root: string;        // ~/.pingis/deepseek-agents
+  apiDir: string;      // <apiDir> — where make-multi-agent.sh lives
+  executor: AgentEndpoint;
+  critic: AgentEndpoint;
 }
 
 /**
- * Read API settings. The API directory is the READ-ONLY source of .env.
- * The key is read from ~/.pingis/<who>/.api-key, where it is written
- * by the API process itself (we redirect DEEPSEEK_API_KEY_PATH).
+ * Pingis builds and uses the multi-agent deployment itself.
+ *
+ * Location: ~/.pingis/deepseek-agents/
+ * Built once by: <apiDir>/tools/make-multi-agent.sh ~/.pingis
+ *
+ * Requires <apiDir>/state.json to exist (user must have logged in
+ * to DeepSeek at least once via `npm start` in apiDir).
  */
-export function loadApiConfig(
-  apiDir: string,
-  fallbackBaseUrl: string,
-  fallbackApiKey: string,
-  who?: AgentName
-): ApiConfig {
-  const dir = expandHome(apiDir);
+export function loadAgentsDeployment(apiDir: string): AgentsDeployment {
+  const api = expandHome(apiDir);
 
-  const envPath = dir ? path.join(dir, '.env') : '';
-  const env = envPath && fs.existsSync(envPath) ? readEnv(envPath) : {};
-
-  // IMPORTANT: do NOT overwrite baseUrl from .env.
-  // We assigned the port when spawning the API process (panel.ts), and .env
-  // may contain a stale PORT from manual runs. If we take it here,
-  // both clients (executor/critic) will go to the same port
-  // and the second will get 401 from the wrong key.
-  const baseUrl = fallbackBaseUrl;
-
-  let maxContextChars = DEFAULT_CONTEXT_CHARS;
-  if (env.DEEPSEEK_MAX_CONTEXT_CHARS) {
-    const n = parseInt(env.DEEPSEEK_MAX_CONTEXT_CHARS, 10);
-    if (Number.isFinite(n) && n > 0) maxContextChars = n;
+  if (!api) {
+    throw new Error(
+      'pingis.apiDir is not set. Point it to your clone of ' +
+      'deepseek-automation-api.'
+    );
+  }
+  if (!fs.existsSync(api)) {
+    throw new Error(`apiDir does not exist: ${api}`);
+  }
+  if (!fs.existsSync(path.join(api, 'state.json'))) {
+    throw new Error(
+      `Login not found: ${path.join(api, 'state.json')}.\n` +
+      `Run this ONCE, by hand:\n` +
+      `    cd ${api}\n` +
+      `    npm start\n` +
+      `Log in to DeepSeek in the browser window, wait for ` +
+      `"DeepSeek client ready", then press Ctrl+C.\n` +
+      `Then start the task again.`
+    );
   }
 
-  // Agent key — only from ~/.pingis/<who>/.api-key.
-  // Do NOT fall back to apiDir/.api-key: it may contain a key
-  // from manual API runs that our process does not recognize.
-  if (who) {
-    const keyPath = apiKeyPathFor(who);
-    if (fs.existsSync(keyPath)) {
-      const apiKey = fs.readFileSync(keyPath, 'utf-8').trim();
-      if (apiKey) return { baseUrl, apiKey, source: 'apikey-file', maxContextChars };
-    }
-    // File missing — return empty key. panel.ts will see it and show
-    // a clear error to the user.
-    return { baseUrl, apiKey: '', source: 'apikey-file', maxContextChars };
+  const root = path.join(os.homedir(), '.pingis', 'deepseek-agents');
+
+  return {
+    root,
+    apiDir: api,
+    executor: readAgent(root, 1),
+    critic: readAgent(root, 2)
+  };
+}
+
+export function deploymentExists(d: AgentsDeployment): boolean {
+  try {
+    return (
+      fs.existsSync(path.join(d.root, 'scripts', 'start-all.sh')) &&
+      fs.existsSync(path.join(d.root, 'agents', 'agent-1', 'agent.env')) &&
+      fs.existsSync(path.join(d.root, 'agents', 'agent-2', 'agent.env'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readAgent(root: string, index: number): AgentEndpoint {
+  const name = `agent-${index}`;
+  const dir = path.join(root, 'agents', name);
+
+  const envPath = path.join(dir, 'agent.env');
+  const keyPath = path.join(dir, '.api-key');
+
+  // These may not exist yet — deployment can be built later.
+  // Caller must check deploymentExists() first.
+  if (!fs.existsSync(envPath) || !fs.existsSync(keyPath)) {
+    return { name, dir, port: 0, apiKey: '' };
   }
 
-  // The branch without `who` — only for probe scripts or debugging.
-  if (dir) {
-    const legacyKeyPath = path.join(dir, '.api-key');
-    if (fs.existsSync(legacyKeyPath)) {
-      const apiKey = fs.readFileSync(legacyKeyPath, 'utf-8').trim();
-      if (apiKey) return { baseUrl, apiKey, source: 'apikey-file', maxContextChars };
-    }
+  const env = readEnv(envPath);
+  const port = parseInt(env.PORT ?? '', 10);
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error(`Invalid PORT in ${envPath}`);
   }
 
-  if (env.API_KEY) {
-    return { baseUrl, apiKey: env.API_KEY, source: 'env', maxContextChars };
+  const apiKey = fs.readFileSync(keyPath, 'utf-8').trim();
+  if (!apiKey) {
+    throw new Error(`Empty .api-key: ${keyPath}`);
   }
 
-  return { baseUrl, apiKey: fallbackApiKey, source: 'settings', maxContextChars };
+  return { name, dir, port, apiKey };
 }
 
 function expandHome(p: string): string {
@@ -88,7 +107,6 @@ function expandHome(p: string): string {
 
 function readEnv(file: string): Record<string, string> {
   const out: Record<string, string> = {};
-  if (!fs.existsSync(file)) return out;
   const text = fs.readFileSync(file, 'utf-8');
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim();
