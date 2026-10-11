@@ -114,7 +114,7 @@ export class AgentsProcess {
     });
 
     const result = runSync(
-      `bash "${script}" "${targetRoot}" --agents 2 --force`,
+      `bash "${script}" "${targetRoot}" --agents 2 --base-port 3098 --force`,
       targetRoot
     );
 

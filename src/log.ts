@@ -70,7 +70,10 @@ function shortSummary(r: LogRecord): string {
     case 'http':
       return `${r.method ?? '?'} ${r.endpoint ?? '?'} → ${r.status ?? '?'} (${r.duration_ms ?? '?'}ms)`;
     case 'api_spawn':
-      return `build/start at ${r.agents_dir ?? r.script ?? '?'}`;
+      if (r.reason === 'build_deployment') {
+        return `build deployment at ${r.target ?? r.script ?? '?'}`;
+      }
+      return `start agents at ${r.agents_dir ?? '?'}`;
     case 'api_ready':
       return `agents ready at ${r.agents_dir ?? '?'}${r.reused ? ' (reused)' : ''}`;
     case 'api_exit':

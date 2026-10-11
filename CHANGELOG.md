@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-11
+
+### Added
+
+- Soft timeout in the orchestrator. On task timeout, the Critic is
+  asked to finalize first (`TIME_LIMIT:` message); a hard stop
+  follows only after a 120-second grace period. The user gets a
+  meaningful summary instead of a silent `timeout` stop.
+- Log summaries distinguish between building the multi-agent
+  deployment and starting it.
+
 ## [0.3.1] - 2026-10-11
 
 ### Added

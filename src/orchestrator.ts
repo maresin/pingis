@@ -117,8 +117,41 @@ export class Orchestrator {
     }, 1000);
 
     try {
+      const softDeadline = start + this.opts.timeoutMs;
+      const hardDeadline = softDeadline + 120_000;
+      let softFired = false;
+
       while (!this.stopped) {
-        if (Date.now() - start > this.opts.timeoutMs) {
+        const now = Date.now();
+
+        if (!softFired && now > softDeadline) {
+          softFired = true;
+          if (!this.deadC) {
+            this.log.event('orchestrator', 'error', {
+              stage: 'timeout',
+              code: 'soft_deadline',
+              detail: 'Asking Critic to finalize.'
+            });
+            this.queueC.push({
+              msg: {
+                role: 'user',
+                content:
+                  'TIME_LIMIT: The overall task time has expired. Read ' +
+                  '.pingis/plan.md (if present) and key files. Assess what ' +
+                  'is done and what is not. Call finalize with an honest ' +
+                  'summary: what is done, what is not, and what the user ' +
+                  'should do when restarting the task. Do not keep working.'
+              }
+            });
+          }
+        }
+
+        if (now > hardDeadline) {
+          this.log.event('orchestrator', 'error', {
+            stage: 'timeout',
+            code: 'hard_deadline',
+            detail: 'Grace period exhausted.'
+          });
           this.stop('timeout', 'Task timeout exceeded.');
           break;
         }

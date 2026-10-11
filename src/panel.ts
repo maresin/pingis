@@ -15,7 +15,6 @@ import { Executor } from './executor';
 import { Logger, LogSink } from './log';
 import { PanelLike, Orchestrator } from './orchestrator';
 import { buildSystemPrompts } from './prompts';
-import { loadAgentsDeployment } from './config';
 import { probeResources } from './resources';
 
 const ATTACHMENTS_DIR = '.pingis/attachments';
@@ -71,8 +70,8 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   done(reason: StopReason, summary?: string): void {
     this.post({ type: 'done', reason, summary });
     this.orchestrator = undefined;
-    // By design: stop API processes after each task.
-    this.stopApiProcesses();
+    this.agents?.stop();
+    this.agents = undefined;
   }
 
   // --- Webview messages ---
@@ -104,11 +103,6 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       hasWorkspace: !!folder,
       workspacePath: folder?.uri.fsPath
     });
-  }
-
-  private stopApiProcesses(): void {
-    this.agents?.stop();
-    this.agents = undefined;
   }
 
   private async onStart(
@@ -159,16 +153,14 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
 
     const cfg = vscode.workspace.getConfiguration('pingis');
     const apiDir         = cfg.get<string>('apiDir') ?? '';
-    const fallbackKey    = cfg.get<string>('apiKey') ?? '';
-    const timeoutMin     = cfg.get<number>('taskTimeoutMinutes') ?? 30;
+    const timeoutMin     = cfg.get<number>('taskTimeoutMinutes') ?? 120;
     const execTimeoutSec = cfg.get<number>('execTimeoutSeconds') ?? 120;
-    const portE          = cfg.get<number>('apiPortExecutor') ?? 3098;
-    const portC          = cfg.get<number>('apiPortCritic') ?? 3099;
 
     if (!apiDir) {
       this.done(
         'bad_request',
-        'Set pingis.apiDir in settings — path to the DeepSeek Automation API directory.'
+        'Set pingis.apiDir in settings — path to your clone of ' +
+        'deepseek-automation-api.'
       );
       return;
     }
@@ -182,43 +174,25 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     };
     this.log = new Logger(cwd, sink);
 
-    // Start API processes (or reuse them if they already respond).
-    this.procE = new ApiProcess({
-      apiDir, port: portE, who: 'executor', logger: this.log
-    });
-    this.procC = new ApiProcess({
-      apiDir, port: portC, who: 'critic', logger: this.log
-    });
-
+    // Build (if needed) and start the multi-agent deployment.
     try {
-      await this.procE.ensureRunning();
-      await this.procC.ensureRunning();
+      this.agents = new AgentsProcess(apiDir, this.log);
+      await this.agents.ensureRunning();
     } catch (e: any) {
-      this.done('server_error', `Failed to start API: ${e.message ?? e}`);
+      this.done('server_error', String(e?.message ?? e));
       return;
     }
 
-    // .api-key is created by the API slightly after /health becomes ready.
-    // Wait for the files; otherwise we will read an empty or stale key.
-    try {
-      await waitForKeyFile(this.procE.keyPath, 120_000);
-      await waitForKeyFile(this.procC.keyPath, 120_000);
-    } catch (e: any) {
-      this.done('unauthorized', String(e.message ?? e));
-      return;
-    }
-
-    const apiCfgE = loadApiConfig(apiDir, this.procE.baseUrl, fallbackKey, 'executor');
-    const apiCfgC = loadApiConfig(apiDir, this.procC.baseUrl, fallbackKey, 'critic');
-
-    if (!apiCfgE.apiKey || !apiCfgC.apiKey) {
-      this.done(
-        'unauthorized',
-        'API keys not found in ~/.pingis/executor/ and ~/.pingis/critic/. ' +
-        'Check Output → Pingis — the API may have failed to log in.'
-      );
-      return;
-    }
+    const apiCfgE = {
+      baseUrl: `http://127.0.0.1:${this.agents.executor.port}`,
+      apiKey:  this.agents.executor.apiKey,
+      maxContextChars: 2_400_000
+    };
+    const apiCfgC = {
+      baseUrl: `http://127.0.0.1:${this.agents.critic.port}`,
+      apiKey:  this.agents.critic.apiKey,
+      maxContextChars: 2_400_000
+    };
 
     const resources = await probeResources(cwd);
 
@@ -231,30 +205,15 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       contextLimitChars: apiCfgE.maxContextChars
     });
 
-    // RAW_PROBE: save raw responses from both APIs for analyzing
-    // context_status and other service fields. Temporary.
-    const saveRawEnabled = cfg.get<boolean>('saveRawResponses') ?? false;
-    const rawDir = path.join(cwd, '.pingis', 'raw');
-    if (saveRawEnabled) fs.mkdirSync(rawDir, { recursive: true });
-    const saveRaw = (who: string, json: unknown) => {
-      if (!saveRawEnabled) return;
-      try {
-        const f = path.join(rawDir, `${who}-${Date.now()}.json`);
-        fs.writeFileSync(f, JSON.stringify(json, null, 2), 'utf-8');
-      } catch { /* ignore */ }
-    };
-
     const apiE = new ApiClient({
       baseUrl: apiCfgE.baseUrl,
       apiKey: apiCfgE.apiKey,
-      logger: this.log,
-      onRawResponse: saveRaw
+      logger: this.log
     });
     const apiC = new ApiClient({
       baseUrl: apiCfgC.baseUrl,
       apiKey: apiCfgC.apiKey,
-      logger: this.log,
-      onRawResponse: saveRaw
+      logger: this.log
     });
 
     const exec = new Executor(cwd, this.log, execTimeoutSec * 1000);
@@ -284,7 +243,9 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   private async onPickFile(): Promise<void> {
     const picked = await vscode.window.showOpenDialog({
       canSelectMany: true,
-      filters: { 'Text': ['txt', 'md', 'json', 'yaml', 'yml', 'rst', 'log'] }
+      filters: {
+        'Text': ['txt', 'md', 'json', 'yaml', 'yml', 'rst', 'log']
+      }
     });
     if (!picked || picked.length === 0) return;
 
@@ -340,7 +301,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   }
 
   dispose(): void {
-    this.stopApiProcesses();
+    this.agents?.stop();
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }
@@ -360,11 +321,8 @@ function makeNonce(): string {
   return out;
 }
 
-
-
-
-// Internal API noise that clutters the Output. Show only
-// significant milestones: start, register, POST/Response, errors.
+// Internal API noise that clutters the Output. Show only significant
+// milestones: start, register, POST/Response, errors.
 const NOISE_PATTERNS: RegExp[] = [
   /📏 Context size/,
   /💾 Chat state saved/,
