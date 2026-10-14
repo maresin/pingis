@@ -3,6 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 export interface AgentEndpoint {
+  // Currently unused. Intended for logging agent identity
+  // (agent-1 / agent-2) next to executor / critic in api_ready /
+  // api_exit events. Remove if no such log line is planned.
   name: string;      // "agent-1" | "agent-2"
   dir: string;       // absolute path to agent-N/
   port: number;

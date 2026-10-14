@@ -17,6 +17,9 @@ export class AgentSession {
   readonly who: AgentName;
   readonly systemPrompt: string;
 
+  // Written by handleSuccess from the API response, cleared by
+  // newChat(), never sent back to the API. Part of the unused
+  // newChat path; see the note on ApiClient.newChat below.
   chatSessionId: string | null = null;
   isFirstCall = true;
   cookieHeader = '';
@@ -84,8 +87,45 @@ export class ApiClient {
   }
 
   /**
-   * Create a new chat on the server side for this session.
-   * After the call, the entire dialog history on the server is reset.
+   * STATUS (step30): not wired into orchestration. No caller in src/,
+   * media/, or scripts/. Kept because the logging infrastructure for
+   * it is fully present (LogEvent 'chat_new' + shortSummary branch),
+   * which suggests the call was intended and removed.
+   *
+   * WHAT IT DOES
+   *   POST /v1/chat/new  body { restore }
+   *   On success: session.isFirstCall = true, session.chatSessionId = null.
+   *   restore=false -> server discards the current chat, next request
+   *                    starts a new one.
+   *   restore=true  -> server re-reads chat_state.json.
+   *
+   * WHY IT MATTERS
+   *   make-multi-agent.sh writes ENABLE_RESTORE=true (default) into
+   *   every agent.env. With that flag, the API restores the previous
+   *   chat on process start. Pingis then sends a fresh system prompt
+   *   into an old conversation. Nobody in Pingis decides new-vs-resume
+   *   — that decision currently lives only in the Executor prompt
+   *   ("check .pingis/plan.md, send RESUME:"), not in TS.
+   *
+   * OPEN QUESTIONS (answer with step31 tests on a live agent)
+   *   1. With ENABLE_RESTORE=true, does a restarted API process
+   *      actually restore the previous chat for the *next* request?
+   *   2. If yes, does Pingis's fresh system prompt get merged with the
+   *      restored history? What does the model see?
+   *   3. With ENABLE_RESTORE=false, is chat_state.json ignored?
+   *   4. Does POST /v1/chat/new { restore: false } clear chat_state.json
+   *      on disk, or only in memory?
+   *
+   * OPTIONS once (1)-(4) are known:
+   *   M1. Leave as-is. Rely on the API + ENABLE_RESTORE. Risky for new
+   *       tasks if the API restores old chats unconditionally.
+   *   M2. Wire Pingis to decide: parse .pingis/plan.md in TS, call
+   *       newChat(session, false) for a fresh task, no-op for resume.
+   *   M3. Call newChat(session, false) unconditionally at task start.
+   *       Resume then works purely through plan.md + RESUME:.
+   *
+   * Do not delete until (1)-(4) are answered; do not wire it up before
+   * that either.
    */
   async newChat(session: AgentSession, restore = false): Promise<void> {
     const controller = new AbortController();

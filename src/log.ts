@@ -65,6 +65,8 @@ function shortSummary(r: LogRecord): string {
       return `${r.stage}/${r.code}: ${String(r.detail ?? '').slice(0, 80)}`;
     case 'stop':
       return `reason=${r.reason}`;
+    // Matches LogEvent 'chat_new'. No emitter in src/ currently;
+    // kept in step with the union member until step31 decides.
     case 'chat_new':
       return r.restore ? 'restore' : 'new chat';
     case 'api_spawn':
