@@ -84,10 +84,11 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json",
     "vscode:prepublish": "npm run compile",
-    "probe:api": "ts-node --project scripts/tsconfig.json scripts/probe-api.ts",
     "probe:exec": "ts-node --project scripts/tsconfig.json scripts/probe-exec.ts",
-    "probe:cycle": "ts-node --project scripts/tsconfig.json scripts/probe-cycle.ts"
+    "probe:409": "ts-node --project scripts/tsconfig.json scripts/probe-409.ts",
+    "probe:help": "ts-node --project scripts/tsconfig.json scripts/probe-help.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

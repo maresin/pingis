@@ -57,7 +57,7 @@ export class AgentsProcess {
       script
     });
 
-    await this.runScriptSync(script, 'start-all.sh');
+    await this.runStartScript(script, 'start-all.sh');
 
     this.startedByUs = true;
 
@@ -171,7 +171,7 @@ export class AgentsProcess {
 
   // --- scripts ---
 
-  private async runScriptSync(script: string, label: string): Promise<void> {
+  private async runStartScript(script: string, label: string): Promise<void> {
     this.log.raw(`[agents] running ${label}`);
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
       (resolve) => {

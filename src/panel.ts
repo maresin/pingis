@@ -183,15 +183,23 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       return;
     }
 
+    // Empirically measured DeepSeek session context limits (chars):
+    //   Russian:  ~2_400_000
+    //   English:  ~3_000_000
+    //   Chinese:  ~1_000_000
+    // Both agents share the same budget; we use the smallest (Russian)
+    // so prompt wording stays stable across languages.
+    const MAX_CONTEXT_CHARS = 2_400_000;
+
     const apiCfgE = {
       baseUrl: `http://127.0.0.1:${this.agents.executor.port}`,
       apiKey:  this.agents.executor.apiKey,
-      maxContextChars: 2_400_000
+      maxContextChars: MAX_CONTEXT_CHARS
     };
     const apiCfgC = {
       baseUrl: `http://127.0.0.1:${this.agents.critic.port}`,
       apiKey:  this.agents.critic.apiKey,
-      maxContextChars: 2_400_000
+      maxContextChars: MAX_CONTEXT_CHARS
     };
 
     const resources = await probeResources(cwd);

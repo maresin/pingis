@@ -174,7 +174,7 @@ async function main() {
     failures++;
   }
   if (!criticFinalize) {
-    console.error('FAIL: Critic did not finalize (didn't receive CONTEXT_LIMIT?)');
+    console.error("FAIL: Critic did not finalize (didn't receive CONTEXT_LIMIT?)");
     failures++;
   }
   if (!stopEvent || stopEvent.reason !== 'done') {

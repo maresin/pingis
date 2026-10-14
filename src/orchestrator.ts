@@ -70,6 +70,11 @@ export class Orchestrator {
   // Limit to 3 attempts, then force stop.
   private criticFinalizeAttempts = 0;
 
+  // HELP / HELP_RESPONSE exchanges between Executor and Critic.
+  // Observability only; no hard limit. The task timeout is the
+  // ultimate bound.
+  private helpCycles = 0;
+
   // Sessions are class fields so step() can handle 409 itself.
   private sessionE: AgentSession | null = null;
   private sessionC: AgentSession | null = null;
@@ -210,6 +215,7 @@ export class Orchestrator {
         reason: this.stopReason ?? 'crash',
         summary: this.stopSummary,
         turns: { executor: this.turnE, critic: this.turnC },
+        help_cycles: this.helpCycles,
         duration_ms: Date.now() - start
       });
     }
@@ -346,7 +352,7 @@ export class Orchestrator {
     const execResults: ExecResult[] = [];
 
     for (const tc of resp.tool_calls) {
-      const cont = await this.handleToolCall(who, session, tc, execResults);
+      const cont = await this.handleToolCall(who, tc, execResults);
       if (!cont) {
         this.panel.setStatus(who, 'idle');
         return;
@@ -453,7 +459,6 @@ export class Orchestrator {
 
   private async handleToolCall(
     who: AgentName,
-    session: AgentSession,
     tc: ToolCall,
     execResults: ExecResult[]
   ): Promise<boolean> {
@@ -484,6 +489,15 @@ export class Orchestrator {
       if (to === who) {
         this.stop('malformed_tool_call', 'send_message to self');
         return false;
+      }
+
+      if (message.startsWith('HELP:') || message.startsWith('HELP_RESPONSE:')) {
+        this.helpCycles++;
+        this.log.event('orchestrator', 'help', {
+          kind: message.startsWith('HELP:') ? 'request' : 'response',
+          from: who,
+          to
+        });
       }
 
       // Special case: Executor is dead (409) and Critic is trying to reply.

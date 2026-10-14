@@ -67,8 +67,6 @@ function shortSummary(r: LogRecord): string {
       return `reason=${r.reason}`;
     case 'chat_new':
       return r.restore ? 'restore' : 'new chat';
-    case 'http':
-      return `${r.method ?? '?'} ${r.endpoint ?? '?'} → ${r.status ?? '?'} (${r.duration_ms ?? '?'}ms)`;
     case 'api_spawn':
       if (r.reason === 'build_deployment') {
         return `build deployment at ${r.target ?? r.script ?? '?'}`;
@@ -78,10 +76,8 @@ function shortSummary(r: LogRecord): string {
       return `agents ready at ${r.agents_dir ?? '?'}${r.reused ? ' (reused)' : ''}`;
     case 'api_exit':
       return `agents stopped (${r.reason ?? '?'})`;
-    case 'api_cleanup': {
-      const pids = (r.killed_pids as number[] | undefined) ?? [];
-      return `killed ${pids.length} process(es) on port ${r.port}`;
-    }
+    case 'help':
+      return `${r.kind} ${r.from} → ${r.to}`;
     case 'context': {
       const p = r.percent_used;
       const used = r.chars_used;
@@ -93,8 +89,6 @@ function shortSummary(r: LogRecord): string {
       return `spawn ${r.agent} on port ${r.port}`;
     case 'api_ready':
       return `${r.agent} ready on ${r.port}${r.reused ? ' (reused)' : ''}`;
-    case 'api_exit':
-      return `${r.agent} exited code=${r.code}`;
     default:
       return '';
   }

@@ -10,3 +10,5 @@ __pycache__/
 
 # Development scripts — not part of the extension
 scripts/dev/
+scripts/bundle.py
+pingis_bundle.txt

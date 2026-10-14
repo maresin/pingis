@@ -3,7 +3,9 @@ import { PanelProvider } from './panel';
 
 export function activate(ctx: vscode.ExtensionContext) {
   const provider = new PanelProvider(ctx);
-  // Register PanelProvider as Disposable so that closing the window stops API processes.
+  // PanelProvider is a Disposable: on window close, dispose() runs.
+  // dispose() calls AgentsProcess.stop(), which stops the agents only
+  // if this session started them (startedByUs). Reused agents keep running.
   ctx.subscriptions.push(provider);
 
   ctx.subscriptions.push(

@@ -139,11 +139,6 @@ export type AgentStatus =
   | 'send_message'
   | 'finalize';
 
-export interface TurnCounters {
-  executor: number;
-  critic: number;
-}
-
 // ==== Log ====
 
 export type LogEvent =
@@ -157,12 +152,11 @@ export type LogEvent =
   | 'error'
   | 'stop'
   | 'chat_new'
-  | 'http'
   | 'api_spawn'
   | 'api_ready'
   | 'api_exit'
-  | 'api_cleanup'
-  | 'context';
+  | 'context'
+  | 'help';
 
 export interface LogRecord {
   seq: number;
