@@ -12,6 +12,8 @@ import { ApiClient, AgentSession } from './api';
 import { Executor } from './executor';
 import { Logger } from './log';
 import { writeToolResults } from './format';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface PanelLike {
   setStatus(who: AgentName, status: AgentStatus): void;
@@ -70,6 +72,12 @@ export class Orchestrator {
   // Limit to 3 attempts, then force stop.
   private criticFinalizeAttempts = 0;
 
+  // When true, a stop('done') is treated as a graceful shutdown:
+  // plan.md is preserved so the task can be resumed later. Set when
+  // the orchestrator hands off to the Critic via CONTEXT_LIMIT: or
+  // TIME_LIMIT:.
+  private pendingGracefulShutdown = false;
+
   // HELP / HELP_RESPONSE exchanges between Executor and Critic.
   // Observability only; no hard limit. The task timeout is the
   // ultimate bound.
@@ -112,6 +120,36 @@ export class Orchestrator {
     this.log.event('executor', 'system_prompt', { text: this.opts.executorPrompt });
     this.log.event('critic', 'system_prompt', { text: this.opts.criticPrompt });
 
+    // Artifact-based continuation decision.
+    //   plan.md present  -> resume: leave chats as-is.
+    //   plan.md absent   -> new task: reset both chats, so no history
+    //                       leaks from the previous task.
+    const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
+    if (!fs.existsSync(planPath)) {
+      try {
+        await this.apiE.newChat(sessionE, false);
+        await this.apiC.newChat(sessionC, false);
+        this.log.event('orchestrator', 'artifact', {
+          action: 'reset',
+          kind: 'chats',
+          reason: 'no plan.md'
+        });
+      } catch (e) {
+        this.log.event('orchestrator', 'error', {
+          stage: 'chat_reset',
+          code: 'new_chat_failed',
+          detail: String(e)
+        });
+      }
+    } else {
+      this.log.event('orchestrator', 'artifact', {
+        action: 'resume',
+        kind: 'chats',
+        reason: 'plan.md present',
+        path: planPath
+      });
+    }
+
     this.queueE.push({
       msg: { role: 'user', content: 'Start the task.' },
       files: this.opts.initialFiles
@@ -137,6 +175,7 @@ export class Orchestrator {
               code: 'soft_deadline',
               detail: 'Asking Critic to finalize.'
             });
+            this.pendingGracefulShutdown = true;
             this.queueC.push({
               msg: {
                 role: 'user',
@@ -210,6 +249,36 @@ export class Orchestrator {
       this.toolResultCleanups = [];
 
       if (this.tick) clearInterval(this.tick);
+
+      // Artifact lifecycle: delete plan.md on clean done.
+      // On graceful shutdown (CONTEXT_LIMIT: / TIME_LIMIT:) the plan
+      // must survive so the task can be resumed later.
+      if (this.stopReason === 'done' && !this.pendingGracefulShutdown) {
+        const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
+        if (fs.existsSync(planPath)) {
+          try {
+            fs.unlinkSync(planPath);
+            this.log.event('orchestrator', 'artifact', {
+              action: 'delete',
+              kind: 'plan',
+              path: planPath
+            });
+          } catch (e) {
+            this.log.event('orchestrator', 'error', {
+              stage: 'plan_delete',
+              code: 'unlink_failed',
+              detail: String(e)
+            });
+          }
+        }
+      } else if (this.stopReason === 'done' && this.pendingGracefulShutdown) {
+        this.log.event('orchestrator', 'artifact', {
+          action: 'keep',
+          kind: 'plan',
+          reason: 'graceful shutdown'
+        });
+      }
+
       this.panel.done(this.stopReason ?? 'crash', this.stopSummary);
       this.log.event('orchestrator', 'stop', {
         reason: this.stopReason ?? 'crash',
@@ -402,6 +471,7 @@ export class Orchestrator {
         return;
       }
 
+      this.pendingGracefulShutdown = true;
       this.queueC.push({
         msg: {
           role: 'user',
@@ -543,6 +613,57 @@ export class Orchestrator {
         return false;
       }
       const comment = (tc.args as any)?.comment ?? '';
+
+      // Artifact: ensure summary.md exists before finalizing. The Critic
+      // is instructed (via its prompt) to write summary.md itself. If it
+      // did not — early finalize, prompt not followed, edge case — the
+      // orchestrator writes a fallback so the user still has a
+      // persistent record of what was done.
+      const summaryPath = path.join(this.opts.cwd, '.pingis', 'summary.md');
+      if (fs.existsSync(summaryPath)) {
+        this.log.event('orchestrator', 'artifact', {
+          action: 'verify',
+          kind: 'summary',
+          path: summaryPath
+        });
+      } else {
+        try {
+          const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
+          let planContent = '';
+          if (fs.existsSync(planPath)) {
+            planContent = fs.readFileSync(planPath, 'utf-8');
+          }
+          const lines = [
+            '# Task summary (fallback, generated by orchestrator)',
+            '',
+            '## Task',
+            this.opts.task,
+            '',
+            '## Finalize comment',
+            String(comment),
+            '',
+            '## Timestamp',
+            new Date().toISOString()
+          ];
+          if (planContent) {
+            lines.push('', '## Plan (verbatim)', '', planContent);
+          }
+          fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
+          fs.writeFileSync(summaryPath, lines.join('\n'), 'utf-8');
+          this.log.event('orchestrator', 'artifact', {
+            action: 'fallback',
+            kind: 'summary',
+            path: summaryPath
+          });
+        } catch (e) {
+          this.log.event('orchestrator', 'error', {
+            stage: 'summary_fallback',
+            code: 'write_failed',
+            detail: String(e)
+          });
+        }
+      }
+
       this.panel.setStatus(who, 'finalize');
       this.stop('done', String(comment));
       return false;

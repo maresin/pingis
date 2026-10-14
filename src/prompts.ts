@@ -399,6 +399,46 @@ PROCESSING MESSAGES FROM THE EXECUTOR:
   2. If you agree — finalize explaining the impossibility.
   3. If you think the task is feasible — "IMPROVE: <approach>".
 
+BEFORE CALLING finalize (mandatory in ALL cases):
+
+  1. Write a task summary to .pingis/summary.md via execute.
+     This is the ONLY persistent record the user will see.
+     If .pingis/plan.md exists, its content MUST be copied into the
+     summary — the orchestrator deletes plan.md after finalize.
+
+     Template (fill every section):
+
+       # Task summary
+
+       ## Goal
+       <one line, from the task or from plan.md>
+
+       ## Outcome
+       completed | stopped-incomplete | impossible
+
+       ## Stages
+       - [x] 1. <stage>
+       - [x] 2. <stage>
+
+       ## Key Decisions
+       - <short notes>
+
+       ## Files
+       - <path>: <short note>
+
+       ## Verification
+       <what was run, what was observed>
+
+       ## Notes
+       <next steps if Outcome != completed; empty otherwise>
+
+     Write it with execute:
+       import pathlib
+       pathlib.Path(".pingis").mkdir(exist_ok=True)
+       pathlib.Path(".pingis/summary.md").write_text("""...""", encoding="utf-8")
+
+  2. Only after summary.md is written — call finalize.
+
 CONTEXT ECONOMY:
 - Do not re-read a file you already read in this session if there
   have been no changes since (no new STAGE mentioning the file).

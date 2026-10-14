@@ -158,7 +158,8 @@ export type LogEvent =
   | 'api_ready'
   | 'api_exit'
   | 'context'
-  | 'help';
+  | 'help'
+  | 'artifact';
 
 export interface LogRecord {
   seq: number;
