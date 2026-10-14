@@ -80,6 +80,15 @@ function shortSummary(r: LogRecord): string {
       return `agents stopped (${r.reason ?? '?'})`;
     case 'help':
       return `${r.kind} ${r.from} → ${r.to}`;
+    case 'artifact': {
+      const action = String(r.action ?? '?');
+      const kind = String(r.kind ?? '?');
+      const filePath = r.path ? path.basename(String(r.path)) : '';
+      if (action === 'fallback' || action === 'write' || action === 'delete') {
+        return `${action} ${kind}: ${filePath}`;
+      }
+      return `${action} ${kind}${r.reason ? ': ' + r.reason : ''}`;
+    }
     case 'context': {
       const p = r.percent_used;
       const used = r.chars_used;
