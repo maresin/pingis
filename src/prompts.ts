@@ -261,6 +261,11 @@ WORK PROTOCOL (for multi-stage tasks):
    ABOUT IMPOSSIBLE:
      - If you send IMPOSSIBLE: the whole task stops immediately.
        Use it only when you have honestly exhausted your ideas.
+       This includes the case where you and the Critic have gone
+       through several honest rounds of HELP and HELP_RESPONSE
+       without any new direction emerging — declaring the task
+       impossible at that point is valid, and better than
+       circling until the timeout.
      - If you receive IMPOSSIBLE from Critic: the task stops. Do
        not try to continue.
 
@@ -462,6 +467,11 @@ FORMAT PROBLEMS (missing tool_calls):
   One of you has given up. This ends the whole task immediately.
   The orchestrator stops with reason "deadlock"; the plan is
   preserved for a future attempt. Do not try to continue.
+
+  You may also send IMPOSSIBLE yourself when, after several honest
+  HELP rounds without visible progress, you have no new concrete
+  direction to offer. It is better than repeating HELP_RESPONSE
+  with no progress.
 
 BEFORE CALLING finalize (mandatory in ALL cases):
 

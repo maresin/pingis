@@ -482,20 +482,15 @@ export class Orchestrator {
               hint: 'general'
             });
 
+            item.msg.content = item.msg.content +
+              '\n\nYour previous response was not recognized as tool_calls. ' +
+              'The raw text is in your conversation history — read it.\n\n' +
+              'Most likely cause: a missing closing bracket at the end ' +
+              'of the JSON, or a message too long to be generated ' +
+              'completely.\n\n' +
+              'Retry with a SHORTER reply. Ensure every opening bracket ' +
+              'has a matching closing bracket.';
             queue.unshift(item);
-            queue.splice(1, 0, {
-              msg: {
-                role: 'user',
-                content:
-                  'Your previous response was not recognized as tool_calls. ' +
-                  'The raw text is in your conversation history — read it.\n\n' +
-                  'Most likely cause: a missing closing bracket at the end ' +
-                  'of the JSON, or a message too long to be generated ' +
-                  'completely.\n\n' +
-                  'Retry with a SHORTER reply. Ensure every opening bracket ' +
-                  'has a matching closing bracket.'
-              }
-            });
             this.panel.setStatus(who, 'idle');
             return;
           }
@@ -524,64 +519,53 @@ export class Orchestrator {
               '\n\nThe truncation or syntax error is likely at the boundary. ' +
               'Retry with a SHORTER reply.';
 
+            item.msg.content = item.msg.content + '\n\n' + preview;
             queue.unshift(item);
-            queue.splice(1, 0, { msg: { role: 'user', content: preview } });
             this.panel.setStatus(who, 'idle');
             return;
           }
 
-          if (retries === 2) {
-            // L3: orchestrator initiates HELP on the broken agent's behalf.
-            if (who === 'executor') this.protocolRetryE++;
-            else this.protocolRetryC++;
+          // L3 and beyond: orchestrator initiates HELP on the broken
+          // agent's behalf. There is no L4 stop — the loop closes only
+          // on IMPOSSIBLE from either agent, or on task timeout. The
+          // protocol counter resets so the next failure starts at L1a.
+          const broken = this.brokenBuffer.get(who) || '';
+          const other: AgentName = who === 'executor' ? 'critic' : 'executor';
 
-            const broken = this.brokenBuffer.get(who) || '';
-            const other: AgentName = who === 'executor' ? 'critic' : 'executor';
-
-            this.log.event(who, 'error', {
-              stage: 'protocol',
-              code: 'no_tool_calls',
-              retry: 3,
-              hint: 'orchestrator_help'
-            });
-
-            const helpMsg =
-              'HELP:\n' +
-              'Problem: tool_calls unparseable\n' +
-              'Error: my last reply was not valid JSON; likely truncated\n' +
-              'Tried: two automatic retries with a hint and a preview\n' +
-              'Files: n/a\n' +
-              'Question: help me reformat — is my message too long?\n\n' +
-              '--- last broken attempt ---\n' +
-              broken;
-
-            const target = other === 'critic' ? this.queueC : this.queueE;
-            target.push({ msg: { role: 'user', content: helpMsg } });
-
-            this.log.event('orchestrator', 'help', {
-              phase: 'HELP',
-              from: who,
-              to: other,
-              initiator: 'orchestrator',
-              enriched: true
-            });
-            this.helpCycles++;
-
-            this.panel.setStatus(who, 'idle');
-            return;
-          }
-
-          // L4: retries exhausted even after orchestrator HELP.
           this.log.event(who, 'error', {
             stage: 'protocol',
             code: 'no_tool_calls',
-            retry_exhausted: true,
-            text: resp.text.slice(0, 2000)
+            retry: 3,
+            hint: 'orchestrator_help'
           });
-          this.stop(
-            'protocol_violation',
-            'Response without tool_calls after orchestrator HELP.'
-          );
+
+          const helpMsg =
+            'HELP:\n' +
+            'Problem: tool_calls unparseable\n' +
+            'Error: my last reply was not valid JSON; likely truncated\n' +
+            'Tried: two automatic retries with a hint and a preview\n' +
+            'Files: n/a\n' +
+            'Question: help me reformat — is my message too long?\n\n' +
+            '--- last broken attempt ---\n' +
+            broken;
+
+          const target = other === 'critic' ? this.queueC : this.queueE;
+          target.length = 0;
+          target.push({ msg: { role: 'user', content: helpMsg } });
+
+          this.log.event('orchestrator', 'help', {
+            phase: 'HELP',
+            from: who,
+            to: other,
+            initiator: 'orchestrator',
+            enriched: true
+          });
+          this.helpCycles++;
+
+          if (who === 'executor') this.protocolRetryE = 0;
+          else this.protocolRetryC = 0;
+
+          this.panel.setStatus(who, 'idle');
           return;
         }
       }
@@ -592,42 +576,67 @@ export class Orchestrator {
     // for `no_tool_calls`. Only after two retries does the task stop.
     const malformed = firstMalformedToolCall(who, resp.tool_calls);
     if (malformed) {
-      if (who === 'executor') this.malformedRetryE++;
-      else this.malformedRetryC++;
-
       const attempt = who === 'executor'
         ? this.malformedRetryE
         : this.malformedRetryC;
 
-      if (attempt > 2) {
+      if (attempt === 0) {
+        // First failure: one hint attached to the current request.
+        if (who === 'executor') this.malformedRetryE++;
+        else this.malformedRetryC++;
+
         this.log.event(who, 'error', {
           stage: 'protocol',
           code: 'malformed_tool_call',
-          retry_exhausted: true,
+          retry: 1,
           reason: malformed
         });
-        this.stop('malformed_tool_call', malformed);
+
+        item.msg.content = item.msg.content +
+          '\n\nYour previous tool call was malformed: ' + malformed + '. ' +
+          'Re-send with the correct arguments — the tool schema is in ' +
+          'your system prompt.';
+        queue.unshift(item);
         this.panel.setStatus(who, 'idle');
         return;
       }
 
+      // Second failure: hand off to the other agent via HELP. No stop.
+      const broken = resp.text.slice(0, 2000);
+      const other: AgentName = who === 'executor' ? 'critic' : 'executor';
+
       this.log.event(who, 'error', {
         stage: 'protocol',
         code: 'malformed_tool_call',
-        retry: attempt,
+        action: 'orchestrator_help',
         reason: malformed
       });
 
-      queue.unshift(item);
-      queue.splice(1, 0, {
-        msg: {
-          role: 'user',
-          content:
-            'Your previous tool call was malformed: ' + malformed + '. ' +
-            'Re-send the call with the correct arguments. ' +
-            'The tool schema is in your system prompt — check it before retrying.'
-        }
+      const helpMsg =
+        'HELP:\n' +
+        'Problem: my tool call was malformed\n' +
+        'Error: ' + malformed + '\n' +
+        'Tried: one correction attempt with a hint\n' +
+        'Files: n/a\n' +
+        'Question: help me produce a valid call\n\n' +
+        '--- last broken attempt ---\n' + broken;
+
+      const target = other === 'critic' ? this.queueC : this.queueE;
+      target.length = 0;
+      target.push({ msg: { role: 'user', content: helpMsg } });
+
+      this.log.event('orchestrator', 'help', {
+        phase: 'HELP',
+        from: who,
+        to: other,
+        initiator: 'orchestrator',
+        enriched: true
       });
+      this.helpCycles++;
+
+      if (who === 'executor') this.malformedRetryE = 0;
+      else this.malformedRetryC = 0;
+
       this.panel.setStatus(who, 'idle');
       return;
     }

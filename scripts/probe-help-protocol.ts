@@ -1,17 +1,15 @@
 /**
- * Unit test for step 32 — unified HELP protocol.
+ * Unit test for the unified HELP protocol.
  *
- * Mocks ApiClient and Executor. No real API servers needed.
- *
- * Scenarios:
- *   T1. Broken tool_calls with valid "message" → tryExtractMessageFromBrokenJson
- *       salvages it; the dialog continues without a retry or stop.
- *   T2. Garbage text three times in a row → L1a, L1b, L3 (orchestrator
- *       HELP); after the fourth garbage attempt → stop('protocol_violation').
- *   T3. Agent sends HELP: → routed; other agent replies HELP_RESPONSE:;
- *       first agent replies SOLVED:; dialog continues.
- *   T4. Agent sends IMPOSSIBLE: → stop('deadlock'); pendingGracefulShutdown
- *       keeps plan.md; fallback summary written.
+ * T1. Broken JSON with a valid "message" is salvaged. Dialog continues.
+ * T2. Three garbage attempts in a row → orchestrator HELP, no
+ *     protocol_violation stop. IMPOSSIBLE from the other agent ends
+ *     the task with reason deadlock.
+ * T3. HELP → HELP_RESPONSE → SOLVED → done.
+ * T4. IMPOSSIBLE from Executor → stop('deadlock'); plan preserved.
+ * T5. Help loop across two full rounds — orchestrator HELP fires
+ *     more than once; the task ends with IMPOSSIBLE, not with a
+ *     hard stop.
  *
  * Run:
  *   npx ts-node --project scripts/tsconfig.json scripts/probe-help-protocol.ts
@@ -30,9 +28,9 @@ let failures = 0;
 
 function check(condition: boolean, label: string): void {
   if (condition) {
-    console.log(`  ✓ ${label}`);
+    console.log(`  \u2713 ${label}`);
   } else {
-    console.error(`  ✗ ${label}`);
+    console.error(`  \u2717 ${label}`);
     failures++;
   }
 }
@@ -108,8 +106,6 @@ async function runOrch(
   );
   await orch.run();
   log.close();
-  // The Logger writes through fs.createWriteStream; close() schedules a
-  // final flush but does not block. Wait briefly before reading the file.
   await new Promise(r => setTimeout(r, 200));
 }
 
@@ -119,8 +115,6 @@ function readLog(cwd: string): any[] {
   return fs.readFileSync(logPath, 'utf-8')
     .split('\n').filter(Boolean).map(l => JSON.parse(l));
 }
-
-// ---------------------------------------------------------------------------
 
 async function t1_salvage_from_broken_message(): Promise<void> {
   console.log('\nT1: broken JSON with valid "message" is salvaged');
@@ -159,8 +153,8 @@ async function t1_salvage_from_broken_message(): Promise<void> {
   check(stop?.reason === 'done', `stop reason = ${stop?.reason} (expected done)`);
 }
 
-async function t2_garbage_escalates_to_stop(): Promise<void> {
-  console.log('\nT2: four garbage attempts → protocol_violation');
+async function t2_garbage_escalates_to_help(): Promise<void> {
+  console.log('\nT2: three garbage attempts → HELP, then IMPOSSIBLE');
 
   const cwd = freshTmp('probe-hp-t2');
   fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
@@ -170,7 +164,8 @@ async function t2_garbage_escalates_to_stop(): Promise<void> {
     { kind: 'broken', text: 'not json at all' },
     { kind: 'broken', text: 'still garbage' },
     { kind: 'broken', text: 'garbage again' },
-    { kind: 'broken', text: 'one more' }
+    { kind: 'tools', calls: [{ name: 'send_message',
+        args: { to: 'critic', message: 'IMPOSSIBLE: cannot reformat' } }] }
   ]);
   const apiC = new FakeApi('critic', [
     { kind: 'tools', calls: [{ name: 'send_message',
@@ -186,9 +181,6 @@ async function t2_garbage_escalates_to_stop(): Promise<void> {
   const retry2 = lines.find(
     e => e.event === 'error' && e.code === 'no_tool_calls' && e.retry === 2
   );
-  const retry3 = lines.find(
-    e => e.event === 'error' && e.code === 'no_tool_calls' && e.retry === 3
-  );
   const orchHelp = lines.find(
     e => e.event === 'help' && e.initiator === 'orchestrator'
   );
@@ -196,10 +188,11 @@ async function t2_garbage_escalates_to_stop(): Promise<void> {
 
   check(!!retry1, 'retry 1 (L1a) logged');
   check(!!retry2, 'retry 2 (L1b) logged');
-  check(!!retry3, 'retry 3 (L3) logged');
   check(!!orchHelp, 'orchestrator-initiated HELP logged');
-  check(stop?.reason === 'protocol_violation',
-    `stop reason = ${stop?.reason} (expected protocol_violation)`);
+  check(stop?.reason !== 'protocol_violation',
+    `stop reason = ${stop?.reason} (must not be protocol_violation)`);
+  check(stop?.reason === 'deadlock',
+    `stop reason = ${stop?.reason} (expected deadlock from IMPOSSIBLE)`);
 }
 
 async function t3_help_loop_and_solved(): Promise<void> {
@@ -270,13 +263,52 @@ async function t4_impossible_stops_task(): Promise<void> {
   check(fs.existsSync(plan), 'plan.md preserved (graceful shutdown)');
 }
 
-// ---------------------------------------------------------------------------
+async function t5_help_loop_no_stop(): Promise<void> {
+  console.log('\nT5: two full HELP rounds, then IMPOSSIBLE — no hard stop');
+
+  const cwd = freshTmp('probe-hp-t5');
+  fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.pingis', 'plan.md'), '# Plan\n');
+
+  const apiE = new FakeApi('executor', [
+    { kind: 'broken', text: 'r1 garbage a' },
+    { kind: 'broken', text: 'r1 garbage b' },
+    { kind: 'broken', text: 'r1 garbage c' },
+    { kind: 'broken', text: 'r2 garbage a' },
+    { kind: 'broken', text: 'r2 garbage b' },
+    { kind: 'broken', text: 'r2 garbage c' },
+    { kind: 'tools', calls: [{ name: 'send_message',
+        args: { to: 'critic', message: 'IMPOSSIBLE: endless format failure' } }] }
+  ]);
+  const apiC = new FakeApi('critic', [
+    { kind: 'tools', calls: [{ name: 'send_message',
+        args: { to: 'executor', message: 'HELP_RESPONSE: try a smaller reply' } }] },
+    { kind: 'tools', calls: [{ name: 'send_message',
+        args: { to: 'executor', message: 'HELP_RESPONSE: split into two calls' } }] }
+  ]);
+
+  await runOrch(cwd, apiE, apiC);
+  const lines = readLog(cwd);
+
+  const helpEvents = lines.filter(
+    e => e.event === 'help' && e.initiator === 'orchestrator'
+  );
+  const stop = lines.find(e => e.event === 'stop');
+
+  check(helpEvents.length >= 2,
+    `orchestrator HELP fired ${helpEvents.length} time(s) (>= 2)`);
+  check(stop?.reason === 'deadlock',
+    `stop reason = ${stop?.reason} (expected deadlock)`);
+  check(stop?.reason !== 'protocol_violation',
+    'stop reason is not protocol_violation');
+}
 
 async function main(): Promise<void> {
   await t1_salvage_from_broken_message();
-  await t2_garbage_escalates_to_stop();
+  await t2_garbage_escalates_to_help();
   await t3_help_loop_and_solved();
   await t4_impossible_stops_task();
+  await t5_help_loop_no_stop();
 
   console.log();
   if (failures === 0) {

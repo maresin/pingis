@@ -5,6 +5,48 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-10-15
+
+### Fixed
+
+- Malformed tool calls now retry up to two times with a hint instead
+  of stopping the task immediately. Applies to `execute` without a
+  script, `send_message` without a message, and `send_message` with
+  an invalid addressee. This mirrors the L1a retry path already in
+  place for responses with unparseable `tool_calls`.
+- Before this release, the first malformed call stopped the task
+  with `stop reason=malformed_tool_call`, even when the agent was
+  one short hint away from producing a valid call.
+
+## [0.3.4] - 2026-10-15
+
+### Fixed
+
+- Malformed tool calls (`execute` without a script, `send_message`
+  without a message, invalid addressee, self-message) now retry once
+  with a hint instead of stopping the task immediately. If the retry
+  also fails, the orchestrator hands off to the other agent via HELP.
+- The help-loop hints (L1a and L1b) are now attached to the current
+  request instead of being queued as separate messages. Previously
+  the agent never saw them — the loop kept re-asking the same
+  question while a stack of unused hints accumulated in its queue.
+  This was the root cause of runs where Executor made 80+ attempts
+  and Critic never got a turn.
+- The L4 stop (`protocol_violation` after repeated failed attempts)
+  is removed. The HELP loop is now closed only by IMPOSSIBLE from
+  either agent or by the task timeout — matching the design of the
+  HELP protocol.
+- When HELP is synthesized, the recipient's queue is replaced rather
+  than appended to, so there is never more than one pending message
+  per agent.
+
+### Changed
+
+- Executor and Critic prompts: IMPOSSIBLE is now documented as a
+  valid outcome after several honest HELP / HELP_RESPONSE rounds
+  without a new concrete direction, rather than only for external
+  impossibility.
+
 ## [0.3.3] - 2026-10-15
 
 ### Added
