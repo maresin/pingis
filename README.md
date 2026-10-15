@@ -253,6 +253,62 @@ for line in sys.stdin:
 "
 ```
 
+## Artifacts and task continuity
+
+Pingis uses two files in `.pingis/` to make long tasks resumable
+across crashes and restarts.
+
+### `plan.md` — continuation marker
+
+- Written by the Executor after `APPROVE_PLAN`, using `execute`.
+- **Presence is the signal**: while `.pingis/plan.md` exists, Pingis
+  treats the task as a continuation and does **not** reset the API
+  chats. The Executor reads the file, finds the first incomplete
+  item (`- [ ]`), and sends `RESUME: continuing from stage N/M`.
+- **Absence is the signal too**: when `.pingis/plan.md` does not
+  exist, Pingis calls `POST /v1/chat/new` on both agents before the
+  first request — a fresh chat, so nothing leaks from the previous
+  task.
+- On clean `done` the orchestrator deletes the file. On
+  `CONTEXT_LIMIT:`, `TIME_LIMIT:`, `IMPOSSIBLE`, or a network
+  failure, the file is preserved.
+
+### `summary.md` — persistent report
+
+- Written by the Critic before calling `finalize`. The Critic copies
+  the plan into it, because `plan.md` is removed after a clean done.
+- Overwritten on every task — one file, always the latest report.
+- If the Critic does not write a summary, the orchestrator writes a
+  fallback before `stop()`.
+
+### Why this split
+
+`plan.md` is state (working document, deleted when the work is
+finished). `summary.md` is history (permanent record). Mixing them
+would force a trade-off between "keep the plan" and "keep the
+report"; separating them keeps both.
+
+### Sequence on a fresh task
+
+    1. Pingis reads <cwd>/.pingis/plan.md
+    2. File missing  -> POST /v1/chat/new (both agents)
+    3. Executor explores the directory, sends PLAN:
+    4. Critic replies APPROVE_PLAN
+    5. Executor writes .pingis/plan.md
+    ...
+    N. Critic writes .pingis/summary.md, calls finalize
+    N+1. Orchestrator deletes .pingis/plan.md
+    N+2. stop(reason=done)
+
+### Sequence on a continuation
+
+    1. Pingis reads <cwd>/.pingis/plan.md  -> exists
+    2. Chats left untouched; ENABLE_RESTORE reopens the last chat
+    3. Executor reads plan.md, finds first "- [ ]"
+    4. Executor sends RESUME: continuing from stage N/M
+    5. Critic replies APPROVE_PLAN
+    6. Work continues from stage N
+
 ## About DeepSeek Automation API
 
 **Pingis does not work without DeepSeek Automation API.** It must be cloned and logged in at least once manually. Pingis **launches** the API processes on task start and **stops** them when the task finishes.

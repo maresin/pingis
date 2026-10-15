@@ -273,7 +273,14 @@ WORK PROTOCOL (for multi-stage tasks):
      anything special. But if you suspect your message was too long
      to be generated completely, you may trigger HELP yourself.
 
-   After APPROVE_STAGE — mark the stage in .pingis/plan.md:
+   IMMEDIATELY after APPROVE_STAGE — mark the stage in .pingis/plan.md.
+   Do this BEFORE starting the next stage, not at the end of the task,
+   not deferred. The checkboxes are the only reliable resume signal
+   after a crash: if the task is interrupted and restarted, the file
+   is what tells you (and the Critic) where to continue. A plan with
+   all checkboxes empty is ambiguous — it looks like nothing was done,
+   even when stages 1-3 are already on disk.
+
      import pathlib
      p = pathlib.Path(".pingis/plan.md")
      s = p.read_text(encoding="utf-8")

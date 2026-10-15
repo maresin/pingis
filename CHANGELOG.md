@@ -5,6 +5,72 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-15
+
+### Added
+
+- **Artifact lifecycle for long tasks.**
+  - `.pingis/plan.md` is now a continuation marker, not a scratch
+    file. While it exists, Pingis treats the task as resumable and
+    leaves the API chats alone (no `POST /v1/chat/new`). When it is
+    missing, Pingis resets both chats before the first request, so
+    no history leaks from the previous task into a new one.
+  - `.pingis/summary.md` is the persistent report of the last task.
+    The Critic writes it before calling `finalize`; if the Critic
+    does not, the orchestrator writes a fallback. The file is
+    overwritten on every task.
+  - On clean `done` the orchestrator deletes `plan.md`. On graceful
+    shutdown (`CONTEXT_LIMIT:`, `TIME_LIMIT:`, `IMPOSSIBLE`, network
+    failure) the plan is preserved so the task can be resumed later.
+
+- **Unified HELP protocol** (logic + format).
+  - `HELP:` / `HELP_RESPONSE:` / `SOLVED:` / `IMPOSSIBLE:` markers
+    are recognised by the orchestrator.
+  - `HELP:` from either agent is routed as-is and enriched with the
+    sender's last broken `tool_calls` response, if any.
+  - Format problems (unparseable `tool_calls`) escalate through
+    three steps: L1a (hint), L1b (preview of the broken output),
+    L3 (orchestrator-initiated HELP to the other agent). Time is
+    the only budget — no numeric iteration counters anywhere.
+  - `IMPOSSIBLE:` from either agent terminates the task with stop
+    reason `deadlock`. The plan is preserved.
+
+- `scripts/probe-help-protocol.ts` — unit coverage for HELP /
+  HELP_RESPONSE / SOLVED / IMPOSSIBLE / broken-JSON salvage /
+  L1a → L1b → L3 escalation.
+
+- Fallback `summary.md` on `done` or `deadlock` when the Critic
+  did not write one.
+
+### Changed
+
+- Executor prompt: mark stages `[x]` in `plan.md` **immediately**
+  after `APPROVE_STAGE`, not at the end of the task. The checkboxes
+  are the only reliable resume signal after a crash.
+- Executor and Critic prompts: no numeric iteration limits. HELP is
+  the signal for "stuck"; IMPOSSIBLE for "cannot be solved".
+- `probe:help-protocol` added to `package.json` scripts.
+
+### Fixed
+
+- `src/log.ts`: `case 'help'` reads `r.phase` and shows enrichment /
+  initiator flags.
+- `scripts/probe-409.ts`: string literal containing an apostrophe
+  switched to double quotes.
+
+### Notes
+
+- Three end-to-end runs confirmed the pipeline: `taskdb-v2`
+  (multi-stage), `fancy-lib-v2` (IMPOSSIBLE → deadlock, plan
+  preserved), `is_valid_time` (single-shot). HELP itself is
+  designed for rare stuck states; only IMPOSSIBLE and RESUME were
+  exercised end-to-end. All HELP branches are covered by
+  `probe-help-protocol.ts`.
+- Crash recovery: on `network_error` after an interrupted run,
+  a subsequent task with the same description in the same folder
+  triggered `RESUME:` — the Executor read `plan.md`, recognized
+  progress from disk, and continued from stage 4/6.
+
 ## [0.3.2] - 2026-10-11
 
 ### Added

@@ -87,10 +87,13 @@ export class ApiClient {
   }
 
   /**
-   * STATUS (step30): not wired into orchestration. No caller in src/,
-   * media/, or scripts/. Kept because the logging infrastructure for
-   * it is fully present (LogEvent 'chat_new' + shortSummary branch),
-   * which suggests the call was intended and removed.
+   * STATUS (step33): wired into orchestration. Called from
+   * Orchestrator.run() before the first request when `.pingis/plan.md`
+   * is absent — i.e. when the current task is a fresh one, not a
+   * continuation. This resets the server-side chat so no history
+   * leaks from the previous task. When plan.md exists (continuation),
+   * newChat is not called and ENABLE_RESTORE=true reopens the prior
+   * chat from chat_state.json.
    *
    * WHAT IT DOES
    *   POST /v1/chat/new  body { restore }
