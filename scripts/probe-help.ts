@@ -195,10 +195,10 @@ async function main() {
   );
   const stopEvent = lines.find(e => e.event === 'stop');
   const helpEvent = lines.find(
-    e => e.event === 'help' && e.kind === 'request'
+    e => e.event === 'help' && e.phase === 'HELP'
   );
   const helpResponseEvent = lines.find(
-    e => e.event === 'help' && e.kind === 'response'
+    e => e.event === 'help' && e.phase === 'HELP_RESPONSE'
   );
 
   console.log();

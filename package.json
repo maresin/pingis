@@ -88,6 +88,7 @@
     "vscode:prepublish": "npm run compile",
     "probe:409": "ts-node --project scripts/tsconfig.json scripts/probe-409.ts",
     "probe:help": "ts-node --project scripts/tsconfig.json scripts/probe-help.ts",
+    "probe:help-protocol": "ts-node --project scripts/tsconfig.json scripts/probe-help-protocol.ts",
     "probe:exec": "ts-node --project scripts/tsconfig.json scripts/probe-exec.ts",
     "probe:artifacts": "ts-node --project scripts/tsconfig.json scripts/probe-artifacts.ts"
   },

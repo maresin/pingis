@@ -78,8 +78,12 @@ function shortSummary(r: LogRecord): string {
       return `agents ready at ${r.agents_dir ?? '?'}${r.reused ? ' (reused)' : ''}`;
     case 'api_exit':
       return `agents stopped (${r.reason ?? '?'})`;
-    case 'help':
-      return `${r.kind} ${r.from} → ${r.to}`;
+    case 'help': {
+      const phase = String(r.phase ?? r.kind ?? '?');
+      const extra = r.enriched ? ' (enriched)' : '';
+      const initiator = r.initiator ? ` [${r.initiator}]` : '';
+      return `${phase} ${r.from} → ${r.to}${extra}${initiator}`;
+    }
     case 'artifact': {
       const action = String(r.action ?? '?');
       const kind = String(r.kind ?? '?');
