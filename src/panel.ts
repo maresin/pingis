@@ -40,7 +40,6 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   private output?: vscode.OutputChannel;
   private log?: Logger;
   private agents?: AgentsProcess;
-  private restartRequested = false;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private ctx: vscode.ExtensionContext) {}
@@ -97,10 +96,6 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
         break;
       case 'stop':
         this.orchestrator?.stop('user_stopped', 'Stopped by user.');
-        break;
-      case 'restart':
-        this.restartRequested = true;
-        this.orchestrator?.stop('user_restart', 'Restarted by user.');
         break;
       case 'pickFile':
         await this.onPickFile();
@@ -233,98 +228,60 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     const taskStartedAt = Date.now();
     const totalTimeoutMs = timeoutMin * 60_000;
 
-    // Outer loop: one iteration per "task run". Normally there is
-    // exactly one iteration. The loop runs again only when the user
-    // clicked "Restart in fresh chat" during the run: chats are reset,
-    // plan.md is preserved, and the same task starts over.
-    while (true) {
-      this.restartRequested = false;
-
-      const result = await runWithRetry({
-        taskStartedAt,
-        totalTimeoutMs,
-        maxRetries: MAX_RETRIES,
-        backoffMs: RETRY_BACKOFF_MS,
-        minRemainingMs: MIN_REMAINING_MS,
-        isRetryable: (r) => RETRYABLE_STOP_REASONS.has(r),
-        log: (event, payload) => {
-          this.log?.event('orchestrator', 'retry', {
-            __phase: event,
-            ...payload
-          });
-        },
-        runOnce: async (remainingMs) => {
-          // Fresh ApiClient / Executor per attempt: on retry the agent
-          // ports and keys come from the freshly started deployment.
-          const apiE = new ApiClient({
-            baseUrl: `http://127.0.0.1:${this.agents!.executor.port}`,
-            apiKey: this.agents!.executor.apiKey,
-            logger: this.log!
-          });
-          const apiC = new ApiClient({
-            baseUrl: `http://127.0.0.1:${this.agents!.critic.port}`,
-            apiKey: this.agents!.critic.apiKey,
-            logger: this.log!
-          });
-          const exec = new Executor(cwd, this.log!, execTimeoutSec * 1000);
-
-          this.orchestrator = new Orchestrator(apiE, apiC, exec, this, this.log!, {
-            cwd,
-            name,
-            task,
-            timeoutMs: remainingMs,
-            executorPrompt: prompts.executorPrompt,
-            criticPrompt: prompts.criticPrompt,
-            initialFiles: attachmentPaths.length > 0 ? attachmentPaths : undefined,
-            agentDirs: {
-              executor: this.agents!.executor.dir,
-              critic: this.agents!.critic.dir
-            }
-          });
-
-          return await this.orchestrator.run();
-        },
-        onRetry: async (attempt, max) => {
-          this.post({ type: 'retrying', attempt, max });
-          this.agents?.stop();
-          this.agents = new AgentsProcess(apiDir, this.log!);
-          await this.agents.ensureRunning();
-        }
-      });
-
-      this.post({ type: 'retryDone' });
-
-      if (!this.restartRequested) {
-        this.done(result.reason, result.summary);
-        return;
-      }
-
-      // Manual restart: chats were signalled to reset via
-      // orchestrator.stop('user_restart'). Now do the actual POST
-      // /v1/chat/new on both agents and loop back.
-      this.log?.event('orchestrator', 'retry', {
-        __phase: 'manual_restart',
-        reason: 'user_restart'
-      });
-      try {
-        await resetChatInPlace(
-          this.agents!.executor.port,
-          this.agents!.executor.apiKey
-        );
-        await resetChatInPlace(
-          this.agents!.critic.port,
-          this.agents!.critic.apiKey
-        );
-      } catch (e) {
-        this.log?.event('orchestrator', 'error', {
-          stage: 'restart',
-          code: 'chat_reset_failed',
-          detail: String(e)
+    const result = await runWithRetry({
+      taskStartedAt,
+      totalTimeoutMs,
+      maxRetries: MAX_RETRIES,
+      backoffMs: RETRY_BACKOFF_MS,
+      minRemainingMs: MIN_REMAINING_MS,
+      isRetryable: (r) => RETRYABLE_STOP_REASONS.has(r),
+      log: (event, payload) => {
+        this.log?.event('orchestrator', 'retry', {
+          __phase: event,
+          ...payload
         });
-        this.done('server_error', String(e));
-        return;
+      },
+      runOnce: async (remainingMs) => {
+        // Fresh ApiClient / Executor per attempt: on retry the agent
+        // ports and keys come from the freshly started deployment.
+        const apiE = new ApiClient({
+          baseUrl: `http://127.0.0.1:${this.agents!.executor.port}`,
+          apiKey: this.agents!.executor.apiKey,
+          logger: this.log!
+        });
+        const apiC = new ApiClient({
+          baseUrl: `http://127.0.0.1:${this.agents!.critic.port}`,
+          apiKey: this.agents!.critic.apiKey,
+          logger: this.log!
+        });
+        const exec = new Executor(cwd, this.log!, execTimeoutSec * 1000);
+
+        this.orchestrator = new Orchestrator(apiE, apiC, exec, this, this.log!, {
+          cwd,
+          name,
+          task,
+          timeoutMs: remainingMs,
+          executorPrompt: prompts.executorPrompt,
+          criticPrompt: prompts.criticPrompt,
+          initialFiles: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+          agentDirs: {
+            executor: this.agents!.executor.dir,
+            critic: this.agents!.critic.dir
+          }
+        });
+
+        return await this.orchestrator.run();
+      },
+      onRetry: async (attempt, max) => {
+        this.post({ type: 'retrying', attempt, max });
+        this.agents?.stop();
+        this.agents = new AgentsProcess(apiDir, this.log!);
+        await this.agents.ensureRunning();
       }
-    }
+    });
+
+    this.post({ type: 'retryDone' });
+    this.done(result.reason, result.summary);
   }
 
   private async onPickFile(): Promise<void> {
@@ -392,20 +349,6 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }
-  }
-}
-
-async function resetChatInPlace(port: number, apiKey: string): Promise<void> {
-  const r = await fetch(`http://127.0.0.1:${port}/v1/chat/new`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ restore: false })
-  });
-  if (!r.ok) {
-    throw new Error(`chat reset failed: HTTP ${r.status}`);
   }
 }
 

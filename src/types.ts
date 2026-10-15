@@ -111,7 +111,6 @@ export type StopReason =
   | 'deadlock'
   | 'no_workspace'
   | 'user_stopped'
-  | 'user_restart'
   | 'crash';
 
 /**
@@ -186,7 +185,6 @@ export type WebviewToExt =
   | { type: 'ready' }
   | { type: 'start'; name: string; description: string; attachments: FileAttachment[] }
   | { type: 'stop' }
-  | { type: 'restart' }
   | { type: 'pickFile' }
   | { type: 'reset' };
 
