@@ -12,6 +12,28 @@ Powered by [DeepSeek Automation API](https://github.com/maresin/deepseek-automat
 
 ---
 
+## ⚠️ Upgrade notice
+
+**Pingis before 0.3.3 reused the same DeepSeek chat across tasks.** If
+you have ever noticed two unrelated projects sharing the same
+conversation history, or a new task continuing the previous task's
+chat instead of starting fresh, this was the cause.
+
+Fixed in **0.3.3**. When `.pingis/plan.md` is absent, Pingis calls
+`POST /v1/chat/new` on both agents before the first request, so each
+new task starts in a fresh chat. Continuation of an unfinished task
+(where `.pingis/plan.md` still exists) reuses the same chat — that is
+intentional, and the resume mechanism depends on it.
+
+**Before starting a task, make sure both components are up to date:**
+
+- **Pingis** — `Extensions → Pingis` for updates.
+- **DeepSeek Automation API** — `cd <api-dir> && git pull && npm install`.
+
+Older combinations may still reproduce the bug.
+
+---
+
 ## Why two agents?
 
 A single LLM assistant has a known failure mode: it does the work, then declares victory. It rarely catches its own mistakes. Pingis puts a second, independent agent in the loop whose *only* job is to verify — read the files, run the tests, look for what's missing.
@@ -27,14 +49,14 @@ When you start a task, Pingis:
 3. The Critic reviews the plan, then reviews each stage as the Executor completes it.
 4. When the Executor is done, the Critic does a final check and either approves or sends the work back.
 
-Everything happens **inside your open project folder**. No files are created outside of it — except for local service files, see [Files and paths](#files-and-paths).
+Everything the agents **create or modify** stays inside your open project folder. The extension's own state — deployment, cookies, logs, per-agent chat state — lives under `~/.pingis/`; see [Files and paths](#files-and-paths) for the exact layout.
 
 ## Requirements
 
 - **VS Code 1.85+** or **VSCodium**
 - **Node.js 18+**
 - **[uv](https://docs.astral.sh/uv/)** — for isolated Python environments
-- **DeepSeek Automation API** — cloned and logged in at least once (Chromium is downloaded via `npx playwright install chromium`)
+- **DeepSeek Automation API** — cloned and logged in at least once. Chromium is downloaded automatically by `npm install` in the API clone.
 
 ## Installation
 
@@ -50,62 +72,77 @@ Everything happens **inside your open project folder**. No files are created out
 
 4. **Configure:** open Settings (`Ctrl+,`), search `Pingis`, set **Api Dir** to the path of your DeepSeek Automation API clone.
 
-## First-time setup: shared cookie state
+## First-time setup
 
-Pingis runs two agents (Executor and Critic) that share a single DeepSeek
-login. This is deliberate. If each agent logs in independently, DeepSeek's
-Cloudflare Turnstile protection can lock both automated browsers into an
-infinite captcha loop — correct answers rejected because the browser's
-aggregate trust score is below threshold. Two simultaneous logins from one
-IP make this worse.
+Both agents share one DeepSeek login. This is deliberate: independent
+logins from the same machine would trigger Cloudflare Turnstile's
+captcha loop, and Cloudflare does not distinguish between two automated
+browsers. One login, shared cookies, no captcha.
 
-The fix is to log in **once**, in a normal browser, and share the
-resulting cookie file. The automated browsers never visit the login page.
+The login happens **once**, in the API directory, before Pingis runs its
+first task.
 
-### One-time setup
+### One-time login
 
-1. **Log in** to <https://chat.deepseek.com> in Firefox. (Not Chrome, not
-   the automated browser — Firefox is currently more trusted by
-   Cloudflare's heuristics.)
-
-2. **Install** the Cookie-Editor extension (available for Firefox and
-   Chrome).
-
-3. On `chat.deepseek.com`, click Cookie-Editor → **Export → JSON**. Save
-   the result to `/tmp/cookies.json`.
-
-4. **Convert** to Playwright's `storageState` format. The converter ships
-   with DeepSeek Automation API:
+1. **Clone and install the API** per its own README:
 
    ```bash
-   mkdir -p ~/.pingis
-   python3 /path/to/deepseek-automation-api/examples/multi-agent/cookies-to-state.py \
-     /tmp/cookies.json ~/.pingis/shared-state.json
-   chmod 600 ~/.pingis/shared-state.json
+   git clone https://github.com/maresin/deepseek-automation-api.git
+   cd deepseek-automation-api
+
+   npm install
+   npm run build
+
+   mkdir -p browsers
+   PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium
    ```
 
-5. **Verify** the Cloudflare pass token is present:
+   (`npm install` runs a `postinstall` hook that downloads Chromium
+   into `./browsers`. The explicit command above is a fallback for
+   environments where `postinstall` was skipped.)
+
+2. **Run the API once and log in:**
 
    ```bash
-   jq '.cookies[].name' ~/.pingis/shared-state.json | grep cf_clearance
+   npm start
+   # A browser window opens. Log in to DeepSeek.
+   # Wait until the chat UI is fully loaded, then press Ctrl+C.
    ```
 
-   If `cf_clearance` is missing, the export was taken before Cloudflare's
-   challenge completed. Re-login, wait for the chat UI to fully load, then
-   re-export.
+   This produces `state.json` in the API directory — the file with the
+   cookies that the automation uses.
 
-### What happens on first run
+3. **Install Pingis** in VS Code and set `pingis.apiDir` in Settings to
+   the path of your API clone.
 
-Pingis reads `~/.pingis/shared-state.json`, starts both API processes with
-the same cookies, and each process registers its own API key **without
-logging in**. Startup takes 10–30 seconds.
+On the first task, Pingis:
+
+- builds a multi-agent deployment under `~/.pingis/deepseek-agents/`
+  using `tools/make-multi-agent.sh` from the API repo,
+- copies `state.json` into the deployment as `shared-state.json`,
+- starts two agents sharing those cookies.
+
+You do not need to touch cookies, ports, or scripts manually.
 
 ### When cookies expire
 
-DeepSeek cookies live 1–3 months. When they expire, Pingis shows
-`Failed to start API`, and the log contains
-`📌 On login page, attempting auto-login...`. Fix: repeat steps 1–4. Chat
-history and RAG indexes are not affected.
+DeepSeek cookies last 1–3 months. Symptoms: agents fail to start, or
+`Failed to start API` appears in `Output → Pingis`.
+
+Fix:
+
+1. `cd <api-dir> && npm start`, log in again, press Ctrl+C.
+2. Refresh the deployment's shared state:
+
+   ```bash
+   ~/.pingis/deepseek-agents/scripts/stop-all.sh
+   ~/.pingis/deepseek-agents/scripts/refresh-state.sh
+   ```
+
+3. Start a task in VS Code. Pingis will launch the agents with the
+   refreshed cookies.
+
+Chat history and RAG indexes are not affected.
 
 Full guide:
 [Building applications — Multi-agent](https://github.com/maresin/deepseek-automation-api/blob/main/docs/guides/building-applications.md).
@@ -114,14 +151,13 @@ Full guide:
 
 | Setting | Default | Description |
 |---|---|---|
-| `pingis.apiDir` | `""` | Path to the DeepSeek Automation API directory. **Required.** Pingis reads `.env` from there and launches `npm start` in it. No files are created or modified in that directory. |
-| `pingis.apiPortExecutor` | `3098` | Port for the Executor's API server. |
-| `pingis.apiPortCritic` | `3099` | Port for the Critic's API server. |
+| `pingis.apiDir` | `""` | Path to the DeepSeek Automation API directory. **Required.** Pingis builds the multi-agent deployment under `~/.pingis/deepseek-agents/` from this clone and manages both agents itself. No files are created or modified in the API directory. |
 | `pingis.taskTimeoutMinutes` | `120` | Maximum task duration in minutes. On expiry, the task stops and all files are preserved. |
 | `pingis.execTimeoutSeconds` | `120` | Timeout for a single `execute` script. Increase for tasks with `npm install` or `cargo build`. |
 | `pingis.saveRawResponses` | `false` | Save raw JSON API responses to `.pingis/raw/`. Debug only — files accumulate fast. |
 
-The fallback settings `pingis.apiBaseUrl` and `pingis.apiKey` are used only when `apiDir` is empty.
+Ports (3098 for the Executor, 3099 for the Critic) come from the
+generated deployment and are not configurable via settings.
 
 ## Usage
 
@@ -147,7 +183,7 @@ Watch progress in the sidebar. Full logs go to `Output → Pingis` (including th
 
 - Reads files **itself** via `execute` — never trusts the Executor's summary.
 - Evaluates on substance: critical errors → `IMPROVE`, working code → `APPROVED`, even with stylistic notes.
-- Bounded to 3 improvement iterations per fragment. Doesn't hunt for things to nitpick.
+- Rejects only on critical violations. Stylistic notes are not grounds for `IMPROVE`. Doesn't hunt for things to nitpick.
 - On `IMPOSSIBLE:` — verifies the reasoning and either confirms via `finalize` or asks the Executor to try a different approach.
 - On `CONTEXT_LIMIT:` — reads `plan.md` and calls `finalize` with an honest summary.
 
@@ -161,31 +197,6 @@ For non-trivial tasks, agents don't just dive in. They work in stages:
 
 For simple tasks (hello-world), the protocol is skipped — the Executor works immediately and goes straight to `ALL DONE`.
 
-## The `plan.md` file
-
-After `APPROVE_PLAN`, the Executor creates `.pingis/plan.md`:
-
-```markdown
-# Task Plan
-
-## Goal
-<short formulation from the task>
-
-## Stages
-- [x] 1. Project initialization
-- [x] 2. Data model
-- [ ] 3. CLI
-- [ ] 4. Tests
-
-## Key Decisions
-- DataFrame as a wrapper over numpy.ndarray
-- gen uses random.Random(seed)
-```
-
-Stages are marked off as they're approved. The **Key Decisions** section holds short architectural notes.
-
-If the task is long and the context runs out, `plan.md` is what makes it possible to continue after a restart.
-
 ## Context tracking and restart
 
 The API returns a `context_status` field in every response with the exact `percent_used` for the current session. Pingis:
@@ -197,26 +208,92 @@ The API returns a `context_status` field in every response with the exact `perce
 
 **To continue after a 409:** just **start the task again in the same folder with the same description**. The Executor sees `plan.md`, reads `## Goal`, finds the first `[ ]`, sends `RESUME: continuing from stage N/M` to the Critic, and picks up where it left off.
 
+## The HELP protocol
+
+When an agent gets stuck, it does not silently retry forever. It sends
+the other agent a structured `HELP:` request, and the two work the
+problem jointly until it is solved or both conclude it cannot be.
+
+The protocol is a loop:
+
+    Executor (stuck) → Critic:  HELP: <problem>
+    Critic (investigates) → Executor:  HELP_RESPONSE: <fix or new direction>
+    Executor (applies) → Critic:  SOLVED: <what worked>
+    ... or, if the hint did not help:
+    Executor → Critic:  HELP: <problem, updated Tried: list>
+
+`IMPOSSIBLE:` from either agent stops the whole task immediately. The
+stop reason is `deadlock`; `plan.md` is preserved so the task can be
+resumed later.
+
+### Format-problem escalation
+
+DeepSeek Web occasionally truncates long tool-call JSON. When an agent's
+reply cannot be parsed as `tool_calls`, the orchestrator escalates in
+three stages before giving up:
+
+- **L1a** — retry with a short hint (check brackets, shorter reply).
+- **L1b** — retry with a preview of the broken output (first 800 and
+  last 400 characters, so the boundary is visible).
+- **L3** — the orchestrator sends a `HELP:` request to the other agent
+  on the broken agent's behalf, with the last broken attempt attached.
+
+If all three fail, the task stops with `protocol_violation`.
+
+`HELP:` from an agent is always routed as-is; if the sender has a broken
+attempt in its recent history, the orchestrator enriches the message
+with it before routing.
+
+## Automatic retry on transient errors
+
+Not every failure is a task failure. When the automation API becomes
+unavailable — a stray `ECONNREFUSED`, a `502 Bad Gateway`, a `500` from
+the API layer — Pingis retries the whole task instead of stopping.
+
+- **Retryable reasons**: `network_error`, `bad_gateway`, `server_error`.
+- **Not retryable**: `crash`, `timeout`, `protocol_violation`,
+  `deadlock`, `server_busy`, `context_exhausted`, `user_stopped`.
+- **Budget**: up to 3 retries with a 5s / 10s / 20s backoff. The task
+  timeout is measured once from the first attempt; a retry cannot
+  extend the total budget.
+- **Agents** are stopped and restarted between attempts. Because
+  `.pingis/plan.md` survives, the Executor resumes with `RESUME:`
+  instead of starting over.
+- **Sidebar** shows `Restarting after error — attempt N/3...` while a
+  retry is in progress.
+
+A retry that succeeds continues the same task; a retry that exhausts
+the budget returns the last failure reason as the final stop reason.
+
 ## Files and paths
 
 ### In the project folder
 
 - `.pingis/patch.py` — the last executed Python script.
 - `.pingis/session.log` — JSONL, full task timeline.
-- `.pingis/plan.md` — the plan (for multi-stage tasks).
+- `.pingis/plan.md` — the active plan; deleted on clean `done`.
+- `.pingis/summary.md` — report of the last completed task; overwritten each run.
 - `.pingis/attachments/` — files attached via the panel form.
 - `.pingis/raw/` — raw API responses (only if `saveRawResponses = true`).
 - `chapters/`, `src/`, `tests/`, `README.md`, etc. — the task's own files. The Executor creates them.
 
 ### In your home directory
 
-- `~/.pingis/executor/` — state of the Executor's API process:
-  - `state.json` — Chromium cookies and origins;
-  - `chat_state.json` — DeepSeek chat state;
+Everything outside the project lives under `~/.pingis/deepseek-agents/`:
+
+- `shared-state.json` — DeepSeek cookies, shared by both agents.
+- `api-path.txt` — absolute path to the API clone.
+- `scripts/start-all.sh`, `stop-all.sh`, `status.sh`, `refresh-state.sh`
+  — the deployment's own lifecycle scripts.
+- `agents/agent-1/` — state of the Executor's API process:
+  - `agent.env` — port, feature flags, paths;
   - `.api-key` — API key;
-  - `uploads/` — uploaded files;
-  - `rag_data/` — RAG index (if enabled).
-- `~/.pingis/critic/` — same for the Critic's API process.
+  - `chat_state.json` — DeepSeek chat state (last chat id, counters, snapshot flags);
+  - `uploads/` — uploaded files, snapshots, RAG context;
+  - `rag_data/` — RAG index (if enabled);
+  - `agent.log` — full stdout/stderr of this agent;
+  - `agent.pid` — PID when running.
+- `agents/agent-2/` — same for the Critic.
 
 These files are **not deleted** when a task stops. They are reused on the next run (faster login, chat preserved).
 
@@ -339,9 +416,14 @@ DeepSeek Automation API drives a real browser, not a server API. This means:
 4. **Restart API processes** — Playwright state can occasionally get stuck:
 
    ```bash
-   pkill -f "deepseek-automation-api"
-   pkill -f Chromium
+   ~/.pingis/deepseek-agents/scripts/stop-all.sh
    # then restart the task in VS Code
+   ```
+
+   If the deployment is missing, kill by port:
+
+   ```bash
+   npx kill-port 3098 3099
    ```
 
 5. **If nothing helps** — contact the DeepSeek Automation API author with the logs.
@@ -351,7 +433,7 @@ DeepSeek Automation API drives a real browser, not a server API. This means:
 - **Works only in an open folder.** Without a workspace, Start is disabled.
 - **One task at a time.** A second Start restarts the orchestrator.
 - **Only the Critic can finish a task.** The Executor has no `finalize` tool.
-- **Logs go to Output, not to the UI.** The sidebar shows only status.
+- **Logs go to Output, not to the sidebar.** The sidebar shows agent status, turn counters, elapsed time, and a "Restarting after error…" indicator during retries; everything else is in `Output → Pingis`.
 - **Ports 3098 and 3099 must be free.** Pingis kills whatever is listening on them, including a manually started API.
 - **Not suited for:** GUI apps, mobile apps, long-running services, ML training, frontend SPAs, games. Anything that can't be verified from the terminal is out of scope.
 - **Best for:** CLI tools, data-processing scripts, REST APIs, parsers, algorithmic problems, tests for existing code.
@@ -374,17 +456,23 @@ code --extensionDevelopmentPath="$PWD" /path/to/test-workspace
 Do not require VS Code, run from a terminal:
 
 ```bash
-# Check the API (requires running API processes)
-npx ts-node --project scripts/tsconfig.json scripts/probe-api.ts <api-dir>
-
-# Check Python script execution
+# Python script execution (no API needed)
 npm run probe:exec
 
-# Full E ↔ C cycle without UI
-npx ts-node --project scripts/tsconfig.json scripts/probe-cycle.ts <api-dir>
+# 409 context_exhausted handling (no API needed)
+npm run probe:409
 
-# Unit test for 409 handling (no API needed)
-npx ts-node --project scripts/tsconfig.json scripts/probe-409.ts
+# HELP routing between agents (no API needed)
+npm run probe:help
+
+# Unified HELP protocol + format escalation (no API needed)
+npm run probe:help-protocol
+
+# plan.md / summary.md lifecycle (no API needed)
+npm run probe:artifacts
+
+# Retry loop: backoff, budget exhaustion, non-retryable reasons
+npm run probe:retry
 ```
 
 ### Project structure
@@ -404,6 +492,7 @@ pingis/
 │   ├── resources.ts       disk and RAM probing
 │   ├── format.ts          tool-result packaging
 │   ├── log.ts             JSONL log + OutputChannel
+│   ├── retry.ts           retry loop for transient errors
 │   └── types.ts           shared types
 ├── scripts/
 │   └── probe-*.ts         probe scripts
