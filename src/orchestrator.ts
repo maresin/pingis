@@ -43,6 +43,16 @@ export interface OrchestratorOptions {
   executorPrompt: string;
   criticPrompt: string;
   initialFiles?: string[];
+  /**
+   * Absolute paths to the per-agent state dirs under
+   * ~/.pingis/deepseek-agents/agents/agent-N/. When provided, the
+   * orchestrator writes and checks a `.last-project` marker so that a
+   * chat belonging to one project is not silently reused by another.
+   *
+   * Optional: probe scripts leave it unset and keep the previous
+   * behaviour (plan.md alone decides).
+   */
+  agentDirs?: { executor: string; critic: string };
 }
 
 export class Orchestrator {
@@ -134,19 +144,56 @@ export class Orchestrator {
     this.log.event('critic', 'system_prompt', { text: this.opts.criticPrompt });
 
     // Artifact-based continuation decision.
-    //   plan.md present  -> resume: leave chats as-is.
-    //   plan.md absent   -> new task: reset both chats, so no history
-    //                       leaks from the previous task.
+    //   plan.md present AND marker matches -> resume: leave chats as-is.
+    //   Otherwise -> new task: reset both chats.
+    //
+    // The `.last-project` marker in each agent's state dir records
+    // which project the current chat belongs to. Without it, a plan.md
+    // left over from one project could cause another project's task to
+    // reuse the same chat.
     const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
-    if (!fs.existsSync(planPath)) {
+    const hasPlan = fs.existsSync(planPath);
+
+    // Default to true when agentDirs are not provided (probe tests,
+    // legacy callers) — keeps the previous behaviour.
+    let projectMatches = true;
+    if (this.opts.agentDirs) {
+      projectMatches = false;
+      try {
+        const markerE = path.join(this.opts.agentDirs.executor, '.last-project');
+        const markerC = path.join(this.opts.agentDirs.critic, '.last-project');
+        const eVal = fs.readFileSync(markerE, 'utf-8').trim();
+        const cVal = fs.readFileSync(markerC, 'utf-8').trim();
+        projectMatches = (eVal === this.opts.cwd && cVal === this.opts.cwd);
+      } catch { /* markers missing or unreadable */ }
+    }
+
+    if (!hasPlan || !projectMatches) {
       try {
         await this.apiE.newChat(sessionE, false);
         await this.apiC.newChat(sessionC, false);
         this.log.event('orchestrator', 'artifact', {
           action: 'reset',
           kind: 'chats',
-          reason: 'no plan.md'
+          reason: !hasPlan ? 'no plan.md' : 'project marker mismatch'
         });
+
+        if (this.opts.agentDirs) {
+          try {
+            const markerE = path.join(this.opts.agentDirs.executor, '.last-project');
+            const markerC = path.join(this.opts.agentDirs.critic, '.last-project');
+            fs.mkdirSync(this.opts.agentDirs.executor, { recursive: true });
+            fs.mkdirSync(this.opts.agentDirs.critic, { recursive: true });
+            fs.writeFileSync(markerE, this.opts.cwd, 'utf-8');
+            fs.writeFileSync(markerC, this.opts.cwd, 'utf-8');
+          } catch (e) {
+            this.log.event('orchestrator', 'error', {
+              stage: 'project_marker',
+              code: 'write_failed',
+              detail: String(e)
+            });
+          }
+        }
       } catch (e) {
         this.log.event('orchestrator', 'error', {
           stage: 'chat_reset',
@@ -158,7 +205,7 @@ export class Orchestrator {
       this.log.event('orchestrator', 'artifact', {
         action: 'resume',
         kind: 'chats',
-        reason: 'plan.md present',
+        reason: 'plan.md present and project matches',
         path: planPath
       });
     }

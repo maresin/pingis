@@ -79,6 +79,10 @@ $('stop').addEventListener('click', () => {
   vscode.postMessage({ type: 'stop' });
 });
 
+$('restart').addEventListener('click', () => {
+  vscode.postMessage({ type: 'restart' });
+});
+
 $('reset').addEventListener('click', () => {
   attachedFiles = [];
   renderAttachments();
@@ -190,6 +194,7 @@ function reasonText(r) {
     malformed_tool_call: 'Failed to parse tool call.',
     unknown_tool: 'Agent called an unknown tool.',
     user_stopped: 'Stopped by user.',
+    user_restart: 'Restarted in a fresh chat.',
     deadlock: 'Deadlock: agents stopped responding.',
     no_workspace: 'Open a project folder.',
     unauthorized: 'No API access.',
