@@ -587,6 +587,55 @@ export class Orchestrator {
       }
     }
 
+    // Pre-check: any malformed tool call aborts the whole batch and
+    // re-queues the original item with a hint. Mirrors the L1a path
+    // for `no_tool_calls`. Only after two retries does the task stop.
+    const malformed = firstMalformedToolCall(who, resp.tool_calls);
+    if (malformed) {
+      if (who === 'executor') this.malformedRetryE++;
+      else this.malformedRetryC++;
+
+      const attempt = who === 'executor'
+        ? this.malformedRetryE
+        : this.malformedRetryC;
+
+      if (attempt > 2) {
+        this.log.event(who, 'error', {
+          stage: 'protocol',
+          code: 'malformed_tool_call',
+          retry_exhausted: true,
+          reason: malformed
+        });
+        this.stop('malformed_tool_call', malformed);
+        this.panel.setStatus(who, 'idle');
+        return;
+      }
+
+      this.log.event(who, 'error', {
+        stage: 'protocol',
+        code: 'malformed_tool_call',
+        retry: attempt,
+        reason: malformed
+      });
+
+      queue.unshift(item);
+      queue.splice(1, 0, {
+        msg: {
+          role: 'user',
+          content:
+            'Your previous tool call was malformed: ' + malformed + '. ' +
+            'Re-send the call with the correct arguments. ' +
+            'The tool schema is in your system prompt — check it before retrying.'
+        }
+      });
+      this.panel.setStatus(who, 'idle');
+      return;
+    }
+
+    // Well-formed batch — reset the malformed counter for this agent.
+    if (who === 'executor') this.malformedRetryE = 0;
+    else this.malformedRetryC = 0;
+
     const execResults: ExecResult[] = [];
 
     for (const tc of resp.tool_calls) {
