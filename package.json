@@ -90,7 +90,8 @@
     "probe:help": "ts-node --project scripts/tsconfig.json scripts/probe-help.ts",
     "probe:help-protocol": "ts-node --project scripts/tsconfig.json scripts/probe-help-protocol.ts",
     "probe:exec": "ts-node --project scripts/tsconfig.json scripts/probe-exec.ts",
-    "probe:artifacts": "ts-node --project scripts/tsconfig.json scripts/probe-artifacts.ts"
+    "probe:artifacts": "ts-node --project scripts/tsconfig.json scripts/probe-artifacts.ts",
+    "probe:retry": "ts-node --project scripts/tsconfig.json scripts/probe-retry.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

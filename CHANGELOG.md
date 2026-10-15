@@ -58,6 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/probe-409.ts`: string literal containing an apostrophe
   switched to double quotes.
 
+- **Automatic retry on transient errors.**
+  - Retryable reasons: `network_error`, `bad_gateway`, `server_error`.
+    Up to 3 retries, backoff 5s / 10s / 20s. The task timeout is
+    measured once from the first attempt — a retry cannot extend the
+    total budget.
+  - On retry, the orchestrator stops and restarts the agents, then
+    runs again with a fresh `ApiClient` / `Executor`. Because
+    `plan.md` survives, the Executor resumes with `RESUME:` instead
+    of starting over.
+  - `crash`, `timeout`, `protocol_violation`, `deadlock`,
+    `server_busy`, `context_exhausted`, and `user_stopped` do NOT
+    retry.
+  - `src/retry.ts` extracts the retry loop into a pure helper;
+    `scripts/probe-retry.ts` covers attempt exhaustion, time-budget
+    exhaustion, and non-retryable reasons.
+
 ### Notes
 
 - Three end-to-end runs confirmed the pipeline: `taskdb-v2`

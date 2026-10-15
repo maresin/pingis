@@ -16,6 +16,16 @@ import { Logger, LogSink } from './log';
 import { PanelLike, Orchestrator } from './orchestrator';
 import { buildSystemPrompts } from './prompts';
 import { probeResources } from './resources';
+import { runWithRetry } from './retry';
+
+const RETRYABLE_STOP_REASONS: ReadonlySet<StopReason> = new Set([
+  'network_error',
+  'bad_gateway',
+  'server_error'
+]);
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000];
+const MIN_REMAINING_MS = 60_000;
 
 const ATTACHMENTS_DIR = '.pingis/attachments';
 const MAX_ATTACHMENT_BYTES = 256 * 1024;
@@ -213,39 +223,61 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       contextLimitChars: apiCfgE.maxContextChars
     });
 
-    const apiE = new ApiClient({
-      baseUrl: apiCfgE.baseUrl,
-      apiKey: apiCfgE.apiKey,
-      logger: this.log
-    });
-    const apiC = new ApiClient({
-      baseUrl: apiCfgC.baseUrl,
-      apiKey: apiCfgC.apiKey,
-      logger: this.log
-    });
-
-    const exec = new Executor(cwd, this.log, execTimeoutSec * 1000);
-
-    this.orchestrator = new Orchestrator(apiE, apiC, exec, this, this.log, {
-      cwd,
-      name,
-      task,
-      timeoutMs: timeoutMin * 60_000,
-      executorPrompt: prompts.executorPrompt,
-      criticPrompt: prompts.criticPrompt,
-      initialFiles: attachmentPaths.length > 0 ? attachmentPaths : undefined
-    });
-
     this.post({ type: 'showProgress', name });
 
-    this.orchestrator.run().catch((e) => {
-      this.log?.event('orchestrator', 'error', {
-        stage: 'panel',
-        code: 'crash',
-        detail: String(e)
-      });
-      this.done('crash', String(e));
+    const taskStartedAt = Date.now();
+    const totalTimeoutMs = timeoutMin * 60_000;
+
+    const result = await runWithRetry({
+      taskStartedAt,
+      totalTimeoutMs,
+      maxRetries: MAX_RETRIES,
+      backoffMs: RETRY_BACKOFF_MS,
+      minRemainingMs: MIN_REMAINING_MS,
+      isRetryable: (r) => RETRYABLE_STOP_REASONS.has(r),
+      log: (event, payload) => {
+        this.log?.event('orchestrator', 'retry', {
+          __phase: event,
+          ...payload
+        });
+      },
+      runOnce: async (remainingMs) => {
+        // Fresh ApiClient / Executor per attempt: on retry the agent
+        // ports and keys come from the freshly started deployment.
+        const apiE = new ApiClient({
+          baseUrl: `http://127.0.0.1:${this.agents!.executor.port}`,
+          apiKey: this.agents!.executor.apiKey,
+          logger: this.log!
+        });
+        const apiC = new ApiClient({
+          baseUrl: `http://127.0.0.1:${this.agents!.critic.port}`,
+          apiKey: this.agents!.critic.apiKey,
+          logger: this.log!
+        });
+        const exec = new Executor(cwd, this.log!, execTimeoutSec * 1000);
+
+        this.orchestrator = new Orchestrator(apiE, apiC, exec, this, this.log!, {
+          cwd,
+          name,
+          task,
+          timeoutMs: remainingMs,
+          executorPrompt: prompts.executorPrompt,
+          criticPrompt: prompts.criticPrompt,
+          initialFiles: attachmentPaths.length > 0 ? attachmentPaths : undefined
+        });
+
+        return await this.orchestrator.run();
+      },
+      onRetry: async (attempt, max) => {
+        this.post({ type: 'retrying', attempt, max });
+        this.agents?.stop();
+        this.agents = new AgentsProcess(apiDir, this.log!);
+        await this.agents.ensureRunning();
+      }
     });
+
+    this.post({ type: 'retryDone' });
+    this.done(result.reason, result.summary);
   }
 
   private async onPickFile(): Promise<void> {

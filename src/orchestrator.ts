@@ -4,6 +4,7 @@ import {
   ChatMessage,
   ContextStatus,
   ExecResult,
+  OrchestratorResult,
   StopError,
   StopReason,
   ToolCall
@@ -108,7 +109,7 @@ export class Orchestrator {
     private opts: OrchestratorOptions
   ) {}
 
-  async run(): Promise<void> {
+  async run(): Promise<OrchestratorResult> {
     this.sessionE = new AgentSession('executor', this.opts.executorPrompt);
     this.sessionC = new AgentSession('critic', this.opts.criticPrompt);
     const sessionE = this.sessionE;
@@ -297,7 +298,8 @@ export class Orchestrator {
         });
       }
 
-      this.panel.done(this.stopReason ?? 'crash', this.stopSummary);
+      // Panel is the caller now; it decides whether to retry or to
+      // show the final state. See OrchestratorResult.
       this.log.event('orchestrator', 'stop', {
         reason: this.stopReason ?? 'crash',
         summary: this.stopSummary,
@@ -306,6 +308,11 @@ export class Orchestrator {
         duration_ms: Date.now() - start
       });
     }
+
+    return {
+      reason: this.stopReason ?? 'crash',
+      summary: this.stopSummary
+    };
   }
 
   stop(reason: StopReason, summary?: string): void {

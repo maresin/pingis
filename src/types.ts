@@ -113,6 +113,16 @@ export type StopReason =
   | 'user_stopped'
   | 'crash';
 
+/**
+ * Result returned by Orchestrator.run(). The orchestrator no longer
+ * calls panel.done() — the caller (Panel) decides whether to retry
+ * or to show the final state.
+ */
+export interface OrchestratorResult {
+  reason: StopReason;
+  summary?: string;
+}
+
 export class StopError extends Error {
   constructor(
     public readonly reason: StopReason,
@@ -186,4 +196,6 @@ export type ExtToWebview =
   | { type: 'status'; who: AgentName; status: AgentStatus }
   | { type: 'turn'; who: AgentName }
   | { type: 'elapsed'; elapsedMs: number; totalMs: number }
+  | { type: 'retrying'; attempt: number; max: number }
+  | { type: 'retryDone' }
   | { type: 'done'; reason: StopReason; summary?: string };

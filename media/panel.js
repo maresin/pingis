@@ -149,6 +149,18 @@ window.addEventListener('message', (e) => {
       $('total').textContent = fmt(m.totalMs);
       break;
 
+    case 'retrying': {
+      const ri = $('retry-info');
+      ri.textContent =
+        'Restarting after error — attempt ' + m.attempt + '/' + m.max + '...';
+      ri.hidden = false;
+      break;
+    }
+
+    case 'retryDone':
+      $('retry-info').hidden = true;
+      break;
+
     case 'done':
       $('done-summary').textContent = m.summary || reasonText(m.reason);
       show('view-done');
