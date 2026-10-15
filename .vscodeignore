@@ -7,3 +7,4 @@ tsconfig.json
 package-lock.json
 *.vsix
 **/*.map
+pingis_bundle.txt

@@ -90,6 +90,12 @@ export class Orchestrator {
   // ultimate bound.
   private helpCycles = 0;
 
+  // How many times in a row the agent sent a malformed tool call
+  // (missing required argument, invalid addressee, self-message).
+  // Reset on the first well-formed step.
+  private malformedRetryE = 0;
+  private malformedRetryC = 0;
+
   // Sessions are class fields so step() can handle 409 itself.
   private sessionE: AgentSession | null = null;
   private sessionC: AgentSession | null = null;
@@ -613,9 +619,14 @@ export class Orchestrator {
       });
     }
 
-    // Successful step — reset this agent's retry counter.
-    if (who === 'executor') this.protocolRetryE = 0;
-    else this.protocolRetryC = 0;
+    // Successful step — reset this agent's retry counters.
+    if (who === 'executor') {
+      this.protocolRetryE = 0;
+      this.malformedRetryE = 0;
+    } else {
+      this.protocolRetryC = 0;
+      this.malformedRetryC = 0;
+    }
 
     this.panel.setStatus(who, 'idle');
   }
@@ -847,6 +858,48 @@ export class Orchestrator {
   }
 }
 
+
+/**
+ * Return a human-readable reason if any tool call in the batch is
+ * malformed, or null if all calls are well-formed. Checked before any
+ * call is executed, so a batch with a broken entry does not
+ * half-execute.
+ *
+ * Malformed cases:
+ *   - execute       — missing or empty `script`
+ *   - send_message  — invalid `to`, empty `message`, or to = self
+ *
+ * Note: `finalize` is intentionally NOT checked here. That tool is
+ * bound to the Critic role, and using it from the Executor is a role
+ * violation (`unknown_tool`), not a formatting problem.
+ */
+function firstMalformedToolCall(
+  who: AgentName,
+  calls: ToolCall[]
+): string | null {
+  for (const tc of calls) {
+    if (tc.name === 'execute') {
+      const script = (tc.args as any)?.script;
+      if (typeof script !== 'string' || script.length === 0) {
+        return 'execute called without a script';
+      }
+    }
+    if (tc.name === 'send_message') {
+      const to = (tc.args as any)?.to;
+      const message = (tc.args as any)?.message;
+      if (to !== 'executor' && to !== 'critic') {
+        return `send_message called with invalid 'to': ${JSON.stringify(to)}`;
+      }
+      if (typeof message !== 'string' || message.length === 0) {
+        return 'send_message called without a message';
+      }
+      if (to === who) {
+        return 'send_message called with to = self';
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Last-resort extraction of the "message" field from a broken tool_calls
