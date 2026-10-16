@@ -1,5 +1,6 @@
 import {
   AgentName,
+  AgentPhase,
   AgentStatus,
   ChatMessage,
   ContextStatus,
@@ -144,6 +145,12 @@ export class Orchestrator {
   // Reset on the first well-formed step.
   private malformedRetryE = 0;
   private malformedRetryC = 0;
+
+  // Coarse per-agent state. Observability only at this step — no
+  // decision in the orchestrator reads these fields yet. See AgentPhase
+  // in types.ts for the phase semantics.
+  private phaseE: AgentPhase = 'idle';
+  private phaseC: AgentPhase = 'idle';
 
   // Sessions are class fields so step() can handle 409 itself.
   private sessionE: AgentSession | null = null;
@@ -415,6 +422,26 @@ export class Orchestrator {
     this.stopSummary = summary;
   }
 
+  /**
+   * Set an agent's phase and log the transition. No-op when the
+   * phase does not change, so idle → idle does not spam the log.
+   */
+  private setPhase(
+    who: AgentName,
+    phase: AgentPhase,
+    reason?: string
+  ): void {
+    const current = who === 'executor' ? this.phaseE : this.phaseC;
+    if (current === phase) return;
+    if (who === 'executor') this.phaseE = phase;
+    else this.phaseC = phase;
+    this.log.event(who, 'agent_phase', {
+      from: current,
+      to: phase,
+      reason
+    });
+  }
+
   private writeFallbackSummary(summaryPath: string, planPath: string): void {
     try {
       let planContent = '';
@@ -459,6 +486,7 @@ export class Orchestrator {
     const queue = who === 'executor' ? this.queueE : this.queueC;
     const item = queue.shift()!;
 
+    this.setPhase(who, 'working', 'request');
     this.panel.setStatus(who, 'thinking');
 
     this.log.event(who, 'request', {
@@ -568,6 +596,7 @@ export class Orchestrator {
               retry: 1,
               hint: 'general'
             });
+            this.setPhase(who, 'format_retry', 'L1a');
 
             item.msg.content = item.msg.content +
               '\n\nYour previous response was not recognized as tool_calls. ' +
@@ -597,6 +626,7 @@ export class Orchestrator {
               retry: 2,
               hint: 'preview'
             });
+            this.setPhase(who, 'format_retry', 'L1b');
 
             const preview =
               'Your previous response is still not recognized as tool_calls.\n\n' +
@@ -649,6 +679,9 @@ export class Orchestrator {
           });
           this.helpCycles++;
 
+          this.setPhase(who, 'awaiting_help', 'L3 synthesized');
+          this.setPhase(other, 'helping', 'received synthesized HELP');
+
           if (who === 'executor') this.protocolRetryE = 0;
           else this.protocolRetryC = 0;
 
@@ -678,6 +711,7 @@ export class Orchestrator {
           retry: 1,
           reason: malformed
         });
+        this.setPhase(who, 'format_retry', 'malformed');
 
         item.msg.content = item.msg.content +
           '\n\nYour previous tool call was malformed: ' + malformed + '. ' +
@@ -720,6 +754,9 @@ export class Orchestrator {
         enriched: true
       });
       this.helpCycles++;
+
+      this.setPhase(who, 'awaiting_help', 'malformed help synthesized');
+      this.setPhase(other, 'helping', 'received malformed HELP');
 
       if (who === 'executor') this.malformedRetryE = 0;
       else this.malformedRetryC = 0;
@@ -771,6 +808,13 @@ export class Orchestrator {
     } else {
       this.protocolRetryC = 0;
       this.malformedRetryC = 0;
+    }
+
+    // If handleToolCall did not move the agent into awaiting_help
+    // or helping, it has finished its step and is idle again.
+    const currentPhase = who === 'executor' ? this.phaseE : this.phaseC;
+    if (currentPhase === 'working') {
+      this.setPhase(who, 'idle', 'step done');
     }
 
     this.panel.setStatus(who, 'idle');
@@ -911,6 +955,8 @@ export class Orchestrator {
           });
         }
         this.helpCycles++;
+        this.setPhase(who, 'awaiting_help', 'HELP sent');
+        this.setPhase(to, 'helping', 'HELP received');
       } else if (phase) {
         this.log.event('orchestrator', 'help', {
           phase,
@@ -918,6 +964,15 @@ export class Orchestrator {
           to
         });
         this.helpCycles++;
+        if (phase === 'HELP_RESPONSE' || phase === 'SOLVED') {
+          // The sender has finished helping; return to idle. The
+          // recipient stays in whatever phase it was — for
+          // HELP_RESPONSE it is awaiting_help, for SOLVED it was
+          // helping and will be reset when its next step runs.
+          this.setPhase(who, 'idle', phase === 'SOLVED'
+            ? 'problem solved'
+            : 'HELP answered');
+        }
       }
 
       // Special case: Executor is dead (409) and Critic is trying to reply.

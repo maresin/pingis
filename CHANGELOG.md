@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Per-agent phase tracking.** The orchestrator now records what each
+  agent is doing (`idle` / `working` / `format_retry` / `awaiting_help` /
+  `helping`) and logs every transition as `agent_phase` in
+  `.pingis/session.log`. This is observability only — no decision in
+  the orchestrator reads these fields yet. It is the foundation for the
+  upcoming HELP-budget check (step 54) and for a clearer sidebar state.
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

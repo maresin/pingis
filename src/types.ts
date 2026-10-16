@@ -149,6 +149,24 @@ export type AgentStatus =
   | 'send_message'
   | 'finalize';
 
+/**
+ * What an agent is doing right now, at a coarser granularity than
+ * AgentStatus (which is a UI label for the panel). AgentPhase is used
+ * for logging and, later, for the HELP-budget check: if an agent stays
+ * in `awaiting_help` for too long without resolution, the orchestrator
+ * synthesizes IMPOSSIBLE instead of looping until the task timeout.
+ *
+ * Distinct from the `phase` field inside `event: 'help'` records —
+ * that one describes a HELP marker (HELP / HELP_RESPONSE / SOLVED /
+ * IMPOSSIBLE), not an agent state.
+ */
+export type AgentPhase =
+  | 'idle'           // nothing in flight; waiting for the next step
+  | 'working'        // request sent; awaiting a response
+  | 'format_retry'   // previous response unparsable; retrying
+  | 'awaiting_help'  // sent HELP:, waiting for HELP_RESPONSE:
+  | 'helping';       // received HELP:, working on the response
+
 // ==== Log ====
 
 export type LogEvent =
@@ -169,7 +187,8 @@ export type LogEvent =
   | 'api_exit'
   | 'context'
   | 'help'
-  | 'artifact';
+  | 'artifact'
+  | 'agent_phase';
 
 export interface LogRecord {
   seq: number;

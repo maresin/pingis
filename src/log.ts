@@ -93,6 +93,10 @@ function shortSummary(r: LogRecord): string {
       }
       return `${action} ${kind}${r.reason ? ': ' + r.reason : ''}`;
     }
+    case 'agent_phase':
+      return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
+    case 'agent_phase':
+      return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
     case 'context': {
       const p = r.percent_used;
       const used = r.chars_used;
