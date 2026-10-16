@@ -100,13 +100,6 @@ function shortSummary(r: LogRecord): string {
     case 'context_transition':
       return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
              `(chat switched)`;
-    case 'agent_phase':
-      return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
-    case 'checkpoint_nudge':
-      return `${r.streak} executes without check-in`;
-    case 'context_transition':
-      return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
-             `(chat switched)`;
     case 'context': {
       const p = r.percent_used;
       const used = r.chars_used;
@@ -114,10 +107,6 @@ function shortSummary(r: LogRecord): string {
       const warn = r.warning_present ? ' [WARN]' : '';
       return `${r.agent}: ${p}% (${used}/${lim})${warn}`;
     }
-    case 'api_spawn':
-      return `spawn ${r.agent} on port ${r.port}`;
-    case 'api_ready':
-      return `${r.agent} ready on ${r.port}${r.reused ? ' (reused)' : ''}`;
     default:
       return '';
   }
