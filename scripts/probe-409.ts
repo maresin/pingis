@@ -135,7 +135,7 @@ async function main() {
       cwd: TMP,
       name: 'probe-409',
       task: 'Stub task for 409 handling test.',
-      timeoutMs: 60_000,
+      deadlineAt: Date.now() + 60_000,
       executorPrompt: 'EXECUTOR_PROMPT',
       criticPrompt: 'CRITIC_PROMPT'
     }

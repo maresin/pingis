@@ -39,7 +39,15 @@ export interface OrchestratorOptions {
   cwd: string;
   name: string;
   task: string;
-  timeoutMs: number;
+  /**
+   * Absolute wall-clock deadline for the whole task, in milliseconds
+   * since the epoch. Not a per-attempt duration: retries share the
+   * same deadline, so a retry cannot extend the total budget.
+   *
+   * The orchestrator treats this as the soft deadline (graceful
+   * shutdown) and adds GRACE_MS on top for the hard stop.
+   */
+  deadlineAt: number;
   executorPrompt: string;
   criticPrompt: string;
   initialFiles?: string[];
@@ -76,6 +84,13 @@ export interface OrchestratorOptions {
  *     looping until the timeout.
  */
 const MAX_FINALIZE_REMINDERS = 3;
+
+/**
+ * Extra time granted after the soft deadline so a graceful shutdown
+ * (Critic finalizing, plan.md / summary.md written) can complete.
+ * Added once, to the absolute deadline, not once per attempt.
+ */
+const GRACE_MS = 120_000;
 
 export class Orchestrator {
   private queueE: QueuedItem[] = [];
@@ -161,7 +176,7 @@ export class Orchestrator {
       name: this.opts.name,
       task: this.opts.task,
       cwd: this.opts.cwd,
-      timeout_ms: this.opts.timeoutMs,
+      deadline_at: this.opts.deadlineAt,
       attachments: this.opts.initialFiles?.length ?? 0
     });
     this.log.event('executor', 'system_prompt', { text: this.opts.executorPrompt });
@@ -239,13 +254,14 @@ export class Orchestrator {
       files: this.opts.initialFiles
     });
 
+    const totalMs = this.opts.deadlineAt - start;
     this.tick = setInterval(() => {
-      this.panel.setElapsed(Date.now() - start, this.opts.timeoutMs);
+      this.panel.setElapsed(Date.now() - start, totalMs);
     }, 1000);
 
     try {
-      const softDeadline = start + this.opts.timeoutMs;
-      const hardDeadline = softDeadline + 120_000;
+      const softDeadline = this.opts.deadlineAt;
+      const hardDeadline = softDeadline + GRACE_MS;
       let softFired = false;
 
       while (!this.stopped) {

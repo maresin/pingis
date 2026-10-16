@@ -30,7 +30,12 @@ export interface RetryOptions {
   minRemainingMs: number;
 
   isRetryable: (reason: StopReason) => boolean;
-  runOnce: (remainingMs: number) => Promise<OrchestratorResult>;
+  /**
+   * Execute one attempt. Receives the absolute deadline for the whole
+   * task (ms since epoch) — the same value every attempt, so retries
+   * cannot extend the budget.
+   */
+  runOnce: (deadlineAt: number) => Promise<OrchestratorResult>;
   onRetry: (
     attempt: number,
     max: number,
@@ -53,9 +58,10 @@ export async function runWithRetry(
   let attempt = 0;
   let lastResult: OrchestratorResult = { reason: 'crash' };
 
+  const deadlineAt = opts.taskStartedAt + opts.totalTimeoutMs;
+
   while (true) {
-    const elapsed = Date.now() - opts.taskStartedAt;
-    const remainingMs = opts.totalTimeoutMs - elapsed;
+    const remainingMs = deadlineAt - Date.now();
 
     if (remainingMs < opts.minRemainingMs) {
       opts.log('retry_abort', {
@@ -66,7 +72,7 @@ export async function runWithRetry(
       break;
     }
 
-    lastResult = await opts.runOnce(remainingMs);
+    lastResult = await opts.runOnce(deadlineAt);
 
     if (!opts.isRetryable(lastResult.reason)) {
       break;

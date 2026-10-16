@@ -227,6 +227,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
 
     const taskStartedAt = Date.now();
     const totalTimeoutMs = timeoutMin * 60_000;
+    const deadlineAt = taskStartedAt + totalTimeoutMs;
 
     const result = await runWithRetry({
       taskStartedAt,
@@ -241,7 +242,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
           ...payload
         });
       },
-      runOnce: async (remainingMs) => {
+      runOnce: async (deadlineAtFromRetry) => {
         // Fresh ApiClient / Executor per attempt: on retry the agent
         // ports and keys come from the freshly started deployment.
         const apiE = new ApiClient({
@@ -260,7 +261,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
           cwd,
           name,
           task,
-          timeoutMs: remainingMs,
+          deadlineAt: deadlineAtFromRetry,
           executorPrompt: prompts.executorPrompt,
           criticPrompt: prompts.criticPrompt,
           initialFiles: attachmentPaths.length > 0 ? attachmentPaths : undefined,

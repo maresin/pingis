@@ -168,7 +168,7 @@ async function main() {
       cwd: TMP,
       name: 'probe-help',
       task: 'Stub task for HELP protocol test.',
-      timeoutMs: 60_000,
+      deadlineAt: Date.now() + 60_000,
       executorPrompt: 'EXECUTOR_PROMPT',
       criticPrompt: 'CRITIC_PROMPT'
     }

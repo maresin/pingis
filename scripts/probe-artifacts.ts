@@ -125,7 +125,7 @@ async function t1_noPlan_resetsChats(): Promise<void> {
     log,
     {
       cwd, name: 't1', task: 'stub',
-      timeoutMs: 10_000,
+      deadlineAt: Date.now() + 10_000,
       executorPrompt: 'E', criticPrompt: 'C'
     }
   );
@@ -155,7 +155,7 @@ async function t2_withPlan_doesNotReset(): Promise<void> {
     log,
     {
       cwd, name: 't2', task: 'stub',
-      timeoutMs: 10_000,
+      deadlineAt: Date.now() + 10_000,
       executorPrompt: 'E', criticPrompt: 'C'
     }
   );
@@ -189,7 +189,7 @@ async function t3_doneWithoutSummary_writesFallback(): Promise<void> {
     log,
     {
       cwd, name: 't3', task: 'stub task',
-      timeoutMs: 30_000,
+      deadlineAt: Date.now() + 30_000,
       executorPrompt: 'E', criticPrompt: 'C'
     }
   );
@@ -226,7 +226,7 @@ async function t4_doneWithSummary_keepsCriticVersion(): Promise<void> {
     log,
     {
       cwd, name: 't4', task: 'stub task',
-      timeoutMs: 30_000,
+      deadlineAt: Date.now() + 30_000,
       executorPrompt: 'E', criticPrompt: 'C'
     }
   );

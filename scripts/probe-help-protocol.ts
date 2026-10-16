@@ -100,7 +100,7 @@ async function runOrch(
     log,
     {
       cwd, name: 'probe-help-protocol', task,
-      timeoutMs: 30_000,
+      deadlineAt: Date.now() + 30_000,
       executorPrompt: 'E', criticPrompt: 'C'
     }
   );
