@@ -4,7 +4,6 @@
   "description": "Two-agent (Executor + Critic) development assistant for VS Code. Launches its own pair of DeepSeek Automation API servers, keeps agents in isolated chats, manages the full lifecycle, tracks context, and uses a plan.md protocol for long tasks.",
   "version": "0.5.0",
   "publisher": "maresin",
-  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/maresin/pingis.git"

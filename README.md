@@ -443,7 +443,7 @@ DeepSeek Automation API drives a real browser, not a server API. This means:
 1. **Check the API manually:**
 
    ```bash
-   curl http://127.0.0.1:3098/health
+   curl https://127.0.0.1:3098/health
    # expect: {"status":"ok",...}
    ```
 
