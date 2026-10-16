@@ -45,6 +45,24 @@ execution logs, contents of files you read, and attachments.
 Leave substantial headroom for development and logs.
 Do not read files blindly: check the size first (os.path.getsize),
 and if the file is large, read it in chunks or not at all.
+Keep responses lean throughout the task: context is a shared resource
+between you and the other agent, and it does not reset.
+
+CONTEXT MARKERS:
+Your tool results may be prefixed with markers from the orchestrator:
+
+  [CONTEXT WARNING]    — you are using context quickly. Shorten replies,
+                         avoid re-reading files, and do not restate what
+                         you already know.
+  [CONTEXT CRITICAL]   — context is nearly exhausted. Immediately:
+                         1. Make sure .pingis/plan.md reflects the current
+                            state (checkbox progress, Key Decisions).
+                         2. Send "CONTEXT_LIMIT: <one-line status>" to
+                            the other agent.
+                         3. Stop working.
+
+You do NOT need to check context yourself — the orchestrator watches it
+and injects these markers when needed.
 
 RESOURCE LIMITS:
 - Do not create or download files larger than 50% of free disk space.
@@ -340,6 +358,24 @@ RESOURCES:
 CONTEXT INFORMATION:
 The session context limit is approximately ${a.contextLimitChars} characters.
 Do not read large files entirely unless necessary — check the size first.
+Keep responses lean throughout the task: context is a shared resource
+between you and the other agent, and it does not reset.
+
+CONTEXT MARKERS:
+Your tool results may be prefixed with markers from the orchestrator:
+
+  [CONTEXT WARNING]    — you are using context quickly. Shorten replies,
+                         avoid re-reading files, and do not restate what
+                         you already know.
+  [CONTEXT CRITICAL]   — context is nearly exhausted. Immediately:
+                         1. Make sure .pingis/plan.md reflects the current
+                            state (checkbox progress, Key Decisions).
+                         2. Send "CONTEXT_LIMIT: <one-line status>" to
+                            the other agent.
+                         3. Stop working.
+
+You do NOT need to check context yourself — the orchestrator watches it
+and injects these markers when needed.
 
 TOOLS:
 

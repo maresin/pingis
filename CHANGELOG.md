@@ -6,6 +6,12 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Context markers documented in both prompts.** The `[CONTEXT WARNING]`
+  and `[CONTEXT CRITICAL]` prefixes that the orchestrator injects into
+  tool results are now explained in both system prompts, together with
+  a short proactive note to keep responses lean. Previously the agent
+  had to infer the meaning of these markers from their names alone.
+
 - **Format-restart in Panel.** When the format-HELP budget inside a
   single run is exhausted (`protocol_violation`), Panel now restarts
   the agents, resets both chats via `POST /v1/chat/new`, and re-runs
