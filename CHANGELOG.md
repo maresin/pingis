@@ -6,6 +6,12 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Format-restart in Panel.** When the format-HELP budget inside a
+  single run is exhausted (`protocol_violation`), Panel now restarts
+  the agents, resets both chats via `POST /v1/chat/new`, and re-runs
+  the same task with `plan.md` still on disk. Up to two such restarts.
+  The task time budget is unchanged — restarts share the same deadline.
+
 - **Bounded format-HELP.** The loop that recovers from unparseable
   `tool_calls` (L1a hint → L1b preview → L3 orchestrator-synthesized
   HELP) now stops after 5 full rounds with `protocol_violation`.

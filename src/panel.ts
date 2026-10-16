@@ -6,6 +6,7 @@ import {
   AgentStatus,
   ExtToWebview,
   FileAttachment,
+  OrchestratorResult,
   StopReason,
   WebviewToExt
 } from './types';
@@ -26,6 +27,17 @@ const RETRYABLE_STOP_REASONS: ReadonlySet<StopReason> = new Set([
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000];
 const MIN_REMAINING_MS = 60_000;
+
+/**
+ * How many times Panel may restart the agents and reset the chats
+ * when runWithRetry returns 'protocol_violation' (the format-HELP
+ * budget inside a single run is exhausted).
+ *
+ * Each restart gives a fresh chat with plan.md still on disk. The
+ * task time budget is not extended — taskStartedAt and totalTimeoutMs
+ * are fixed outside the restart loop.
+ */
+const MAX_FORMAT_RESTARTS = 2;
 
 const ATTACHMENTS_DIR = '.pingis/attachments';
 const MAX_ATTACHMENT_BYTES = 256 * 1024;
@@ -227,9 +239,13 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
 
     const taskStartedAt = Date.now();
     const totalTimeoutMs = timeoutMin * 60_000;
-    const deadlineAt = taskStartedAt + totalTimeoutMs;
 
-    const result = await runWithRetry({
+    // Outer loop: restart only on 'protocol_violation' (format-HELP
+    // budget exhausted inside one run). Time budget is shared across
+    // iterations — taskStartedAt and totalTimeoutMs are fixed.
+    let result: OrchestratorResult = { reason: 'crash' };
+    for (let formatRestarts = 0; ; formatRestarts++) {
+    result = await runWithRetry({
       taskStartedAt,
       totalTimeoutMs,
       maxRetries: MAX_RETRIES,
@@ -280,6 +296,52 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
         await this.agents.ensureRunning();
       }
     });
+
+    // Success, non-format failure, or timeout — no restart needed.
+    if (result.reason !== 'protocol_violation') {
+      break;
+    }
+
+    if (formatRestarts >= MAX_FORMAT_RESTARTS) {
+      this.log?.event('orchestrator', 'error', {
+        stage: 'restart',
+        code: 'format_restarts_exhausted',
+        total: formatRestarts
+      });
+      break;
+    }
+
+    this.log?.event('orchestrator', 'retry', {
+      __phase: 'format_restart',
+      attempt: formatRestarts + 1,
+      max: MAX_FORMAT_RESTARTS
+    });
+    this.post({
+      type: 'retrying',
+      attempt: formatRestarts + 1,
+      max: MAX_FORMAT_RESTARTS
+    });
+
+    try {
+      this.agents?.stop();
+      this.agents = new AgentsProcess(apiDir, this.log!);
+      await this.agents.ensureRunning();
+      await resetChatInPlace(
+        this.agents.executor.port, this.agents.executor.apiKey
+      );
+      await resetChatInPlace(
+        this.agents.critic.port, this.agents.critic.apiKey
+      );
+    } catch (e: any) {
+      this.log?.event('orchestrator', 'error', {
+        stage: 'restart',
+        code: 'format_restart_failed',
+        detail: String(e)
+      });
+      this.done('server_error', String(e?.message ?? e));
+      return;
+    }
+    }
 
     this.post({ type: 'retryDone' });
     this.done(result.reason, result.summary);
@@ -350,6 +412,33 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }
+  }
+}
+
+async function resetChatInPlace(
+  port: number,
+  apiKey: string
+): Promise<void> {
+  // POST /v1/chat/new with restore:false resets the server-side chat.
+  // AbortController guarantees we do not hang forever if the agent is
+  // half-dead: a stuck fetch here would freeze the entire restart path.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/v1/chat/new`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ restore: false }),
+      signal: controller.signal
+    });
+    if (!r.ok) {
+      throw new Error(`chat reset failed: HTTP ${r.status}`);
+    }
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
