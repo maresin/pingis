@@ -152,6 +152,14 @@ export class Orchestrator {
   private phaseE: AgentPhase = 'idle';
   private phaseC: AgentPhase = 'idle';
 
+  // The request content the agent was working from at the start of
+  // its current step. Preserved across a HELP round so that, when
+  // HELP_RESPONSE arrives, the orchestrator can restore the original
+  // framing of the task instead of layering more meta-discussion on
+  // top (step 51b).
+  private originalE = '';
+  private originalC = '';
+
   // Sessions are class fields so step() can handle 409 itself.
   private sessionE: AgentSession | null = null;
   private sessionC: AgentSession | null = null;
@@ -490,6 +498,11 @@ export class Orchestrator {
   private async step(who: AgentName, session: AgentSession): Promise<void> {
     const queue = who === 'executor' ? this.queueE : this.queueC;
     const item = queue.shift()!;
+
+    // Snapshot the framing the agent is about to work from. Used
+    // after a HELP round to restore the original request (step 51b).
+    if (who === 'executor') this.originalE = item.msg.content;
+    else this.originalC = item.msg.content;
 
     this.setPhase(who, 'working', 'request');
     this.panel.setStatus(who, 'thinking');
