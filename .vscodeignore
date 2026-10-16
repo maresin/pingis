@@ -8,3 +8,5 @@ package-lock.json
 *.vsix
 **/*.map
 pingis_bundle.txt
+project_bundle.txt
+docs/

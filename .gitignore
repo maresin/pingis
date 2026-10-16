@@ -12,3 +12,4 @@ __pycache__/
 scripts/dev/
 scripts/bundle.py
 pingis_bundle.txt
+project_bundle.txt

@@ -12,25 +12,46 @@ Powered by [DeepSeek Automation API](https://github.com/maresin/deepseek-automat
 
 ---
 
-## ⚠️ Upgrade notice
+## Project status
 
-**Pingis before 0.3.3 reused the same DeepSeek chat across tasks.** If
-you have ever noticed two unrelated projects sharing the same
-conversation history, or a new task continuing the previous task's
-chat instead of starting fresh, this was the cause.
+Pingis is in **early development**. The current focus is correctness:
+each release has fixed failure modes that could silently produce a
+wrong result, leave a task half-done without a report, or freeze the
+UI. Feature expansion comes later.
 
-Fixed in **0.3.3**. When `.pingis/plan.md` is absent, Pingis calls
-`POST /v1/chat/new` on both agents before the first request, so each
-new task starts in a fresh chat. Continuation of an unfinished task
-(where `.pingis/plan.md` still exists) reuses the same chat — that is
-intentional, and the resume mechanism depends on it.
-
-**Before starting a task, make sure both components are up to date:**
+**Keep both components on the latest version:**
 
 - **Pingis** — `Extensions → Pingis` for updates.
 - **DeepSeek Automation API** — `cd <api-dir> && git pull && npm install`.
 
-Older combinations may still reproduce the bug.
+Pingis depends on the API's internal contract — deployment layout,
+chat reset endpoints, health probes. An old API paired with a new
+extension, or the reverse, can produce failures that are already
+fixed.
+
+Recent releases addressed, among others:
+
+- **Chat isolation.** A new task in a different project no longer
+  reuses the previous project's DeepSeek conversation. Continuation
+  of an unfinished task still reuses the chat — that is intentional,
+  and the resume mechanism depends on it.
+- **Silent stalls.** Long `execute` streaks trigger a soft checkpoint
+  reminder; a stuck agent escalates through a structured HELP protocol
+  instead of retrying the same failure until the budget runs out.
+- **Graceful timeout.** On task timeout the Critic finalizes with an
+  honest summary. `plan.md` and `summary.md` stay on disk, so a
+  partial run can be understood or resumed.
+- **Transient errors.** A stray `ECONNRESET` or `502` retries the
+  task instead of ending it; a `network_error` no longer triggers a
+  full restart of the API agents.
+- **Stop is immediate.** Stop aborts the retry loop at its nearest
+  checkpoint, not after the next backoff sleep.
+- **Malformed model output.** Truncated or unparseable `tool_calls`
+  from DeepSeek Web are salvaged, retried with hints, or escalated
+  via HELP before the task gives up.
+
+If something fails, first confirm both components are on the latest
+version — that resolves most one-off issues.
 
 ---
 
@@ -223,7 +244,7 @@ The protocol is a loop:
     Executor → Critic:  HELP: <problem, updated Tried: list>
 
 `IMPOSSIBLE:` from either agent stops the whole task immediately. The
-stop reason is `deadlock`; `plan.md` is preserved so the task can be
+stop reason is `gave_up`; `plan.md` is preserved so the task can be
 resumed later.
 
 ### Format-problem escalation
@@ -252,13 +273,16 @@ the API layer — Pingis retries the whole task instead of stopping.
 
 - **Retryable reasons**: `network_error`, `bad_gateway`, `server_error`.
 - **Not retryable**: `crash`, `timeout`, `protocol_violation`,
-  `deadlock`, `server_busy`, `context_exhausted`, `user_stopped`.
+  `deadlock`, `gave_up`, `server_busy`, `context_exhausted`,
+  `user_stopped`.
 - **Budget**: up to 3 retries with a 5s / 10s / 20s backoff. The task
   timeout is measured once from the first attempt; a retry cannot
   extend the total budget.
-- **Agents** are stopped and restarted between attempts. Because
-  `.pingis/plan.md` survives, the Executor resumes with `RESUME:`
-  instead of starting over.
+- **Agents**: on `server_error` / `bad_gateway` the API agents are
+  stopped and restarted (the process is unhealthy). On
+  `network_error` they are left alone — the link between the extension
+  host and the API blipped, not the API itself. Because `.pingis/plan.md`
+  survives, the Executor resumes with `RESUME:` instead of starting over.
 - **Sidebar** shows `Restarting after error — attempt N/3...` while a
   retry is in progress.
 
@@ -267,17 +291,17 @@ the budget returns the last failure reason as the final stop reason.
 
 ### Format-restart
 
-Separately from retry: when the format-HELP budget inside a single
-run is exhausted (`protocol_violation`), Pingis does not give up
+Separately from retry: when the format-HELP budget inside a single run
+is exhausted (`protocol_violation`), Pingis does not give up
 immediately. It restarts the API agents, resets both chats via
-`POST /v1/chat/new { restore: false }`, and re-runs the same task
-with `.pingis/plan.md` still on disk. Up to two such restarts.
+`POST /v1/chat/new { restore: false }`, and re-runs the same task with
+`.pingis/plan.md` still on disk. Up to two such restarts.
 
-Rationale: five format rounds without a valid `tool_calls` in one
-chat often means the accumulated history has become hostile to
-clean generation. A fresh chat with the same plan gives the Executor
-a clean slate. The task time budget is not extended — restarts share
-the original deadline.
+Rationale: five format rounds without a valid `tool_calls` in one chat
+often means the accumulated history has become hostile to clean
+generation. A fresh chat with the same plan gives the Executor a clean
+slate. The task time budget is not extended — restarts share the
+original deadline.
 
 ## Files and paths
 
