@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Grace period 300s → 30 minutes.** Live runs6 showed the Critic's
+  first LLM turn after soft deadline can take 89+ seconds, and
+  finalizing needs 2-3 more turns. 5 minutes was not enough for a
+  slow DeepSeek Web. The task budget still caps the run; only the
+  window after the soft deadline grew.
+
+- **`TIME_LIMIT:` handler rewritten as a strict three-turn flow.**
+  The Critic now: (1) one execute to gather plan.md + 2-3 recent run
+  logs, (2) one execute to write summary.md, (3) one finalize. No
+  open-ended investigation. A short honest summary beats a thorough
+  one that misses the deadline.
+
 ### Fixed
 
 - **Stale `summary.md` cleared at task start.** A new task now

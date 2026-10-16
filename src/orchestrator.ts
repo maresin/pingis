@@ -159,16 +159,19 @@ const MAX_CONTINUATION_NUDGES = 3;
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
  *
- * 300_000 (5 minutes) is calibrated against real runs: on a long
- * task the Critic's first LLM turn alone can take 55+ seconds, and
- * finalizing needs at least three turns — read plan.md, write
- * summary.md via execute, then call finalize. 120_000 left no room
- * for that; 300_000 does.
+ * 1_800_000 (30 minutes). Live runs6 showed the Critic's first LLM
+ * turn after soft deadline can take 89+ seconds, and completing the
+ * finalize flow requires 2-3 more turns. 300_000 left no room for a
+ * slow DeepSeek Web response. 30 minutes covers 5-10 slow turns even
+ * in the worst case.
+ *
+ * The task budget (taskTimeoutMinutes) still caps the total run;
+ * only the graceful-shutdown window grows.
  *
  * Probes override this via OrchestratorOptions.graceMs; production
  * uses this default.
  */
-const GRACE_MS = 300_000;
+const GRACE_MS = 1_800_000;
 
 export class Orchestrator {
   private queueE: QueuedItem[] = [];

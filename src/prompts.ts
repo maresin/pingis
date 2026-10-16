@@ -509,11 +509,25 @@ FORMAT PROBLEMS (missing tool_calls):
   including your last broken attempt.
 
 "TIME_LIMIT: ...":
-  The overall task time has expired. Read .pingis/plan.md (if present)
-  and key files. Assess what's done and what's not. Call finalize
-  with an honest summary: what's done, what's not, what the user
-  should do when restarting the task. Do not try to keep working —
-  finalize immediately.
+  The overall task time has expired. Finalize in at most THREE turns.
+
+  Turn 1 — one execute that gathers everything at once (do not split):
+    • print .pingis/plan.md (if it exists),
+    • list the contents of the runs/ directory (or whatever run
+      directory the task used), newest first,
+    • print the tail of the 2-3 most recent run logs.
+
+  Turn 2 — one execute that writes .pingis/summary.md with:
+    • Goal (from plan.md or the task),
+    • Outcome (completed / stopped-incomplete / impossible),
+    • Stages done / not done (copy the checkboxes from plan.md),
+    • Files touched, verification performed, notes for resuming.
+
+  Turn 3 — call finalize.
+
+  Do NOT go deep. Do NOT re-read files you have already seen. A short
+  honest summary beats a thorough one that misses the deadline. The
+  goal is to leave the user a usable report, not to solve the task.
 
 "QUESTION: ...":
   Reply "ANSWER: <answer>".

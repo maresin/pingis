@@ -50,6 +50,10 @@ check(C.includes('attempted, not resolved'),
   'Critic explains [~]');
 check(C.includes('actually revisits it') || C.includes('revisits it'),
   'Critic instructed to verify [~] is revisited');
+check(C.includes('at most THREE turns'),
+  'Critic TIME_LIMIT handler is three-turn bounded');
+check(C.includes('Do NOT go deep'),
+  'Critic TIME_LIMIT handler forbids deep investigation');
 
 console.log();
 if (failures === 0) {
