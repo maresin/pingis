@@ -250,11 +250,47 @@ async function t4_stale_summary_cleared(): Promise<void> {
   }
 }
 
+async function t5_halted_batch_persists_results(): Promise<void> {
+  console.log('\nT5: halted batch persists tool results');
+
+  // Batch: [execute, finalize]. The Executor is not allowed to
+  // finalize, so the batch halts on the second call. The result of
+  // the first (execute) must still be written and logged before the
+  // task stops — step68 behavior.
+  const cwd = freshTmp('probe-fallback-t5');
+  fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
+
+  const apiE = new FakeApi('executor', [
+    { kind: 'tools', calls: [
+      { name: 'execute', args: { script: 'print("side effect")' } },
+      { name: 'finalize', args: { comment: 'not mine' } }
+    ]}
+  ]);
+  const apiC = new FakeApi('critic', []);
+
+  await runOrch(cwd, apiE, apiC);
+  const lines = readLog(cwd);
+
+  const routed = lines.find(
+    e => e.event === 'route'
+      && e.kind === 'tool_results'
+      && e.halted === true
+  );
+  const stop = lines.find(e => e.event === 'stop');
+
+  check(!!routed, 'tool_results route logged with halted=true');
+  check(routed?.count === 1,
+    `route count = ${routed?.count} (expected 1)`);
+  check(stop?.reason === 'unknown_tool',
+    `stop reason = ${stop?.reason} (expected unknown_tool)`);
+}
+
 async function main(): Promise<void> {
   await t1_network_error();
   await t2_unknown_tool();
   await t3_critic_summary_untouched();
   await t4_stale_summary_cleared();
+  await t5_halted_batch_persists_results();
 
   console.log();
   if (failures === 0) {

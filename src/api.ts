@@ -29,11 +29,22 @@ export class AgentSession {
   }
 
   absorbCookies(headers: Headers) {
-    const setCookie = headers.get('set-cookie');
-    if (!setCookie) return;
-    const pairs = setCookie
-      .split(/,(?=[^ ])/)
-      .map(c => c.split(';')[0].trim())
+    // getSetCookie() returns the individual Set-Cookie values as an
+    // array. Splitting the joined header with a regex is ambiguous:
+    // a comma inside Expires=Thu, 01 Jan 2025 is indistinguishable
+    // from the separator between two Set-Cookie headers.
+    //
+    // getSetCookie() is present since Node 18.14 (undici 5.20);
+    // VS Code 1.85+ ships a runtime that has it. When it is absent
+    // (unusual), we simply do not track cookies — the rest of the
+    // extension gets them via shared-state.json, not via HTTP.
+    const anyHeaders = headers as any;
+    if (typeof anyHeaders.getSetCookie !== 'function') return;
+    const raw: string[] = anyHeaders.getSetCookie();
+    if (!Array.isArray(raw) || raw.length === 0) return;
+
+    const pairs = raw
+      .map((c: string) => c.split(';')[0].trim())
       .filter(Boolean);
 
     // Merge by cookie name. A response that sets only one cookie

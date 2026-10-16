@@ -265,6 +265,20 @@ the API layer — Pingis retries the whole task instead of stopping.
 A retry that succeeds continues the same task; a retry that exhausts
 the budget returns the last failure reason as the final stop reason.
 
+### Format-restart
+
+Separately from retry: when the format-HELP budget inside a single
+run is exhausted (`protocol_violation`), Pingis does not give up
+immediately. It restarts the API agents, resets both chats via
+`POST /v1/chat/new { restore: false }`, and re-runs the same task
+with `.pingis/plan.md` still on disk. Up to two such restarts.
+
+Rationale: five format rounds without a valid `tool_calls` in one
+chat often means the accumulated history has become hostile to
+clean generation. A fresh chat with the same plan gives the Executor
+a clean slate. The task time budget is not extended — restarts share
+the original deadline.
+
 ## Files and paths
 
 ### In the project folder

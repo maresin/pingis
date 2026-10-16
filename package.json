@@ -101,7 +101,8 @@
     "probe:continuation-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-continuation-nudge.ts",
     "probe:plan-markers": "ts-node --project scripts/tsconfig.json scripts/probe-plan-markers.ts",
     "probe:retry-restart": "ts-node --project scripts/tsconfig.json scripts/probe-retry-restart.ts",
-    "probe:fallback-summary": "ts-node --project scripts/tsconfig.json scripts/probe-fallback-summary.ts"
+    "probe:fallback-summary": "ts-node --project scripts/tsconfig.json scripts/probe-fallback-summary.ts",
+    "probe:cookies-merge": "ts-node --project scripts/tsconfig.json scripts/probe-cookies-merge.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
