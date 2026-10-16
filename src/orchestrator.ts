@@ -150,8 +150,17 @@ const CHECKPOINT_NUDGE_AFTER = 15;
  * Extra time granted after the soft deadline so a graceful shutdown
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
+ *
+ * 300_000 (5 minutes) is calibrated against real runs: on a long
+ * task the Critic's first LLM turn alone can take 55+ seconds, and
+ * finalizing needs at least three turns — read plan.md, write
+ * summary.md via execute, then call finalize. 120_000 left no room
+ * for that; 300_000 does.
+ *
+ * Probes override this via OrchestratorOptions.graceMs; production
+ * uses this default.
  */
-const GRACE_MS = 120_000;
+const GRACE_MS = 300_000;
 
 export class Orchestrator {
   private queueE: QueuedItem[] = [];
