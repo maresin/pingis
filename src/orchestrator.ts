@@ -812,12 +812,10 @@ export class Orchestrator {
     execResults: ExecResult[]
   ): Promise<boolean> {
     if (tc.name === 'execute') {
+      // Args are pre-validated by firstMalformedToolCall() in step();
+      // that check aborts the whole batch before handleToolCall() runs.
       const script = (tc.args as any)?.script;
       const command = (tc.args as any)?.command;
-      if (typeof script !== 'string' || script.length === 0) {
-        this.stop('malformed_tool_call', 'execute without script');
-        return false;
-      }
       this.panel.setStatus(who, 'execute');
       const result = await this.exec.run(tc.id, script, command);
       execResults.push(result);
@@ -825,20 +823,10 @@ export class Orchestrator {
     }
 
     if (tc.name === 'send_message') {
+      // Args are pre-validated by firstMalformedToolCall() in step();
+      // that check aborts the whole batch before handleToolCall() runs.
       const to = (tc.args as any)?.to;
       let message = (tc.args as any)?.message;
-      if (to !== 'executor' && to !== 'critic') {
-        this.stop('malformed_tool_call', 'send_message: invalid to');
-        return false;
-      }
-      if (typeof message !== 'string' || message.length === 0) {
-        this.stop('malformed_tool_call', 'send_message without message');
-        return false;
-      }
-      if (to === who) {
-        this.stop('malformed_tool_call', 'send_message to self');
-        return false;
-      }
 
       // Classify the HELP-loop marker. IMPOSSIBLE is terminal; every
       // other marker is log-only and routed normally.
