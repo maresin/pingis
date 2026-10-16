@@ -6,6 +6,12 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **API configuration recorded in the task log.** `ENABLE_RAG`,
+  `ENABLE_SNAPSHOT` and `ENABLE_RESTORE` are now read from each
+  agent's `agent.env` and written into the `task_start` event of
+  `.pingis/session.log`. Purely observational — no orchestrator
+  decision depends on them.
+
 - **Chat-transition detection in the log.** When `percent_used` drops
   by 50+ points between two consecutive responses from the same agent,
   the orchestrator logs a `context_transition` event with the before

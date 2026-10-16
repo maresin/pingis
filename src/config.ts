@@ -10,6 +10,12 @@ export interface AgentEndpoint {
   dir: string;       // absolute path to agent-N/
   port: number;
   apiKey: string;
+  // Feature flags read from agent.env (written by
+  // make-multi-agent.sh). Recorded in task_start so the log shows
+  // which configuration a task ran under.
+  enableRag: boolean;
+  enableSnapshot: boolean;
+  enableRestore: boolean;
 }
 
 export interface AgentsDeployment {
@@ -84,7 +90,10 @@ function readAgent(root: string, index: number): AgentEndpoint {
   // These may not exist yet — deployment can be built later.
   // Caller must check deploymentExists() first.
   if (!fs.existsSync(envPath) || !fs.existsSync(keyPath)) {
-    return { name, dir, port: 0, apiKey: '' };
+    return {
+      name, dir, port: 0, apiKey: '',
+      enableRag: false, enableSnapshot: false, enableRestore: false
+    };
   }
 
   const env = readEnv(envPath);
@@ -98,7 +107,21 @@ function readAgent(root: string, index: number): AgentEndpoint {
     throw new Error(`Empty .api-key: ${keyPath}`);
   }
 
-  return { name, dir, port, apiKey };
+  return {
+    name, dir, port, apiKey,
+    enableRag: parseBool(env.ENABLE_RAG),
+    enableSnapshot: parseBool(env.ENABLE_SNAPSHOT),
+    enableRestore: parseBool(env.ENABLE_RESTORE)
+  };
+}
+
+/**
+ * Parse a boolean env value strictly. Only the exact string "true"
+ * (case-insensitive, trimmed) is true. Everything else — including
+ * "false", "0", "no", and unset — is false.
+ */
+function parseBool(v: string | undefined): boolean {
+  return (v ?? '').trim().toLowerCase() === 'true';
 }
 
 function expandHome(p: string): string {

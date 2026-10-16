@@ -62,6 +62,22 @@ export interface OrchestratorOptions {
    * behaviour (plan.md alone decides).
    */
   agentDirs?: { executor: string; critic: string };
+
+  /**
+   * Snapshot of the API feature flags (ENABLE_RAG / ENABLE_SNAPSHOT /
+   * ENABLE_RESTORE) read from each agent's agent.env. Recorded in the
+   * task_start log event so a task's configuration is visible when
+   * reading the log later. Purely observational — no orchestrator
+   * decision reads these.
+   *
+   * Optional: probe scripts leave it unset.
+   */
+  apiConfig?: {
+    executor: { enableRag: boolean; enableSnapshot: boolean;
+                enableRestore: boolean };
+    critic:   { enableRag: boolean; enableSnapshot: boolean;
+                enableRestore: boolean };
+  };
 }
 
 /**
@@ -230,7 +246,9 @@ export class Orchestrator {
       task: this.opts.task,
       cwd: this.opts.cwd,
       deadline_at: this.opts.deadlineAt,
-      attachments: this.opts.initialFiles?.length ?? 0
+      attachments: this.opts.initialFiles?.length ?? 0,
+      api_config_executor: this.opts.apiConfig?.executor,
+      api_config_critic: this.opts.apiConfig?.critic
     });
     this.log.event('executor', 'system_prompt', { text: this.opts.executorPrompt });
     this.log.event('critic', 'system_prompt', { text: this.opts.criticPrompt });

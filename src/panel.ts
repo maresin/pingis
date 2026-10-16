@@ -284,6 +284,18 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
           agentDirs: {
             executor: this.agents!.executor.dir,
             critic: this.agents!.critic.dir
+          },
+          apiConfig: {
+            executor: {
+              enableRag: this.agents!.executor.enableRag,
+              enableSnapshot: this.agents!.executor.enableSnapshot,
+              enableRestore: this.agents!.executor.enableRestore
+            },
+            critic: {
+              enableRag: this.agents!.critic.enableRag,
+              enableSnapshot: this.agents!.critic.enableSnapshot,
+              enableRestore: this.agents!.critic.enableRestore
+            }
           }
         });
 
