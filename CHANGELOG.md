@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Soft checkpoint nudge.** When an agent makes 15 consecutive
+  `execute` calls without an intervening `send_message`, the
+  orchestrator prepends a short `[CHECKPOINT]` reminder to the next
+  request. It is not a stop: the agent decides whether to check in
+  with `STAGE N/M DONE` or keep going. The counter resets at the
+  nudge. Purpose: keep the PLAN → STAGE protocol from silently
+  disappearing during long implementation phases. Observable as
+  `event: 'checkpoint_nudge'` in `.pingis/session.log`.
+
 ### Fixed
 
 - **Graceful shutdown on timeout.** When the soft deadline fires, the

@@ -190,7 +190,8 @@ export type LogEvent =
   | 'context_transition'
   | 'help'
   | 'artifact'
-  | 'agent_phase';
+  | 'agent_phase'
+  | 'checkpoint_nudge';
 
 export interface LogRecord {
   seq: number;

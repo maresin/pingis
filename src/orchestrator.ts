@@ -135,6 +135,18 @@ const MAX_FORMAT_ROUNDS = 5;
 const TRANSITION_DROP_POINTS = 50;
 
 /**
+ * How many execute calls an agent may make in a row, without an
+ * intervening send_message, before the orchestrator prepends a soft
+ * [CHECKPOINT] reminder to the next request.
+ *
+ * This is deliberately not a hard limit. The agent decides whether
+ * the streak is legitimate (long implementation phase) or a drift
+ * (check-ins forgotten). The orchestrator only ensures the protocol
+ * does not silently disappear.
+ */
+const CHECKPOINT_NUDGE_AFTER = 15;
+
+/**
  * Extra time granted after the soft deadline so a graceful shutdown
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
@@ -172,6 +184,13 @@ export class Orchestrator {
   // control flow.
   private prevPercentE = -1;
   private prevPercentC = -1;
+
+  // Consecutive execute calls per agent, without an intervening
+  // send_message. Reset to 0 on send_message, incremented on execute.
+  // When the counter reaches CHECKPOINT_NUDGE_AFTER, the next request
+  // gets a [CHECKPOINT] prefix and the counter resets to 0.
+  private executeStreakE = 0;
+  private executeStreakC = 0;
 
   // Dead sessions: the agent hit 409 context_exhausted.
   private deadE = false;
@@ -583,9 +602,37 @@ export class Orchestrator {
 
     const api = who === 'executor' ? this.apiE : this.apiC;
 
+    // Soft checkpoint nudge: if the agent has made many execute
+    // calls without a send_message, prepend a short [CHECKPOINT]
+    // reminder to this request. Not a stop, not an iteration counter;
+    // just a cue that check-ins are part of the protocol. The
+    // original content is left untouched so originalE / originalC
+    // stay clean for HELP round-trips.
+    const streak = who === 'executor'
+      ? this.executeStreakE
+      : this.executeStreakC;
+    let msgForCall = item.msg;
+    if (streak >= CHECKPOINT_NUDGE_AFTER) {
+      this.log.event(who, 'checkpoint_nudge', { streak });
+      msgForCall = {
+        role: 'user',
+        content:
+          '[CHECKPOINT] You have made ' + streak +
+          ' consecutive execute calls without a send_message to the ' +
+          'other agent.\n\n' +
+          'If a stage from .pingis/plan.md is done, send ' +
+          'STAGE N/M DONE now. If you are mid-stage, keep going — ' +
+          'this is a reminder, not a stop.\n\n' +
+          '---\n\n' +
+          item.msg.content
+      };
+      if (who === 'executor') this.executeStreakE = 0;
+      else this.executeStreakC = 0;
+    }
+
     let resp;
     try {
-      resp = await api.chat(session, item.msg, { files: item.files });
+      resp = await api.chat(session, msgForCall, { files: item.files });
     } catch (e) {
       if (e instanceof StopError && e.reason === 'context_exhausted') {
         await this.handleAgentContextExhausted(who);
@@ -1036,10 +1083,17 @@ export class Orchestrator {
       this.panel.setStatus(who, 'execute');
       const result = await this.exec.run(tc.id, script, command);
       execResults.push(result);
+      if (who === 'executor') this.executeStreakE++;
+      else this.executeStreakC++;
       return true;
     }
 
     if (tc.name === 'send_message') {
+      // Any send_message counts as a check-in: reset the execute
+      // streak for this agent.
+      if (who === 'executor') this.executeStreakE = 0;
+      else this.executeStreakC = 0;
+
       // Args are pre-validated by firstMalformedToolCall() in step();
       // that check aborts the whole batch before handleToolCall() runs.
       const to = (tc.args as any)?.to;

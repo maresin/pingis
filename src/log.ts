@@ -95,11 +95,15 @@ function shortSummary(r: LogRecord): string {
     }
     case 'agent_phase':
       return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
+    case 'checkpoint_nudge':
+      return `${r.streak} executes without check-in`;
     case 'context_transition':
       return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
              `(chat switched)`;
     case 'agent_phase':
       return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
+    case 'checkpoint_nudge':
+      return `${r.streak} executes without check-in`;
     case 'context_transition':
       return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
              `(chat switched)`;
