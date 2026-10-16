@@ -191,6 +191,7 @@ function reasonText(r) {
     unknown_tool: 'Agent called an unknown tool.',
     user_stopped: 'Stopped by user.',
     deadlock: 'Deadlock: agents stopped responding.',
+    gave_up: 'Task declared impossible by an agent. Plan preserved.',
     no_workspace: 'Open a project folder.',
     unauthorized: 'No API access.',
     bad_request: 'Invalid request.',

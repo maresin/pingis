@@ -109,6 +109,7 @@ export type StopReason =
   | 'malformed_tool_call'
   | 'unknown_tool'
   | 'deadlock'
+  | 'gave_up'
   | 'no_workspace'
   | 'user_stopped'
   | 'crash';

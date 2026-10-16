@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- `StopReason` split: an agent's `IMPOSSIBLE` now stops the task with
+  reason `gave_up`, distinct from `deadlock` (which still means "the
+  orchestrator ran out of work — an internal error"). The user-facing
+  reason text in the sidebar reflects the difference.
+
 ### Added
 
 - **Per-agent phase tracking.** The orchestrator now records what each

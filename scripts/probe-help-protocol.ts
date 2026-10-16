@@ -191,8 +191,8 @@ async function t2_garbage_escalates_to_help(): Promise<void> {
   check(!!orchHelp, 'orchestrator-initiated HELP logged');
   check(stop?.reason !== 'protocol_violation',
     `stop reason = ${stop?.reason} (must not be protocol_violation)`);
-  check(stop?.reason === 'deadlock',
-    `stop reason = ${stop?.reason} (expected deadlock from IMPOSSIBLE)`);
+  check(stop?.reason === 'gave_up',
+    `stop reason = ${stop?.reason} (expected gave_up from IMPOSSIBLE)`);
 }
 
 async function t3_help_loop_and_solved(): Promise<void> {
@@ -257,8 +257,8 @@ async function t4_impossible_stops_task(): Promise<void> {
   const summary = path.join(cwd, '.pingis', 'summary.md');
   const plan = path.join(cwd, '.pingis', 'plan.md');
 
-  check(stop?.reason === 'deadlock',
-    `stop reason = ${stop?.reason} (expected deadlock)`);
+  check(stop?.reason === 'gave_up',
+    `stop reason = ${stop?.reason} (expected gave_up)`);
   check(fs.existsSync(summary), 'fallback summary written');
   check(fs.existsSync(plan), 'plan.md preserved (graceful shutdown)');
 }
@@ -297,8 +297,8 @@ async function t5_help_loop_no_stop(): Promise<void> {
 
   check(helpEvents.length >= 2,
     `orchestrator HELP fired ${helpEvents.length} time(s) (>= 2)`);
-  check(stop?.reason === 'deadlock',
-    `stop reason = ${stop?.reason} (expected deadlock)`);
+  check(stop?.reason === 'gave_up',
+    `stop reason = ${stop?.reason} (expected gave_up)`);
   check(stop?.reason !== 'protocol_violation',
     'stop reason is not protocol_violation');
 }

@@ -361,8 +361,13 @@ export class Orchestrator {
       const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
 
       // Fallback summary when the Critic did not write one.
-      // Covers clean done without summary, and deadlock (IMPOSSIBLE).
-      if ((this.stopReason === 'done' || this.stopReason === 'deadlock')
+      // Covers clean done, deadlock (empty queues), and gave_up
+      // (IMPOSSIBLE from an agent). All three end the task without
+      // the Critic having written a summary; the user still needs a
+      // persistent record of what happened.
+      if ((this.stopReason === 'done' ||
+           this.stopReason === 'deadlock' ||
+           this.stopReason === 'gave_up')
           && !fs.existsSync(summaryPath)) {
         this.writeFallbackSummary(summaryPath, planPath);
       }
@@ -930,7 +935,7 @@ export class Orchestrator {
           to
         });
         this.pendingGracefulShutdown = true;
-        this.stop('deadlock',
+        this.stop('gave_up',
           `IMPOSSIBLE from ${who}: ${message.slice(0, 200)}`);
         return false;
       }
