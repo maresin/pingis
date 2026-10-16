@@ -197,19 +197,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Malformed tool calls now retry up to two times with a hint instead
-  of stopping the task immediately. Applies to `execute` without a
-  script, `send_message` without a message, and `send_message` with
-  an invalid addressee. This mirrors the L1a retry path already in
-  place for responses with unparseable `tool_calls`.
-- Before this release, the first malformed call stopped the task
-  with `stop reason=malformed_tool_call`, even when the agent was
-  one short hint away from producing a valid call.
-
-## [0.3.4] - 2026-10-15
-
-### Fixed
-
 - Malformed tool calls (`execute` without a script, `send_message`
   without a message, invalid addressee, self-message) now retry once
   with a hint instead of stopping the task immediately. If the retry
