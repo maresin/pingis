@@ -6,6 +6,14 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Bounded format-HELP.** The loop that recovers from unparseable
+  `tool_calls` (L1a hint → L1b preview → L3 orchestrator-synthesized
+  HELP) now stops after 5 full rounds with `protocol_violation`.
+  Each round is up to 3 nudges, so the agent has 15 attempts before
+  the task is declared failed. This replaces the previous unbounded
+  loop, which could consume the whole task budget without producing
+  a valid tool_calls.
+
 - `HELP_RESPONSE` messages now carry a "Return to your original task"
   preamble: the orchestrator restores the recipient's original framing
   of the task (captured when it sent `HELP:`) instead of forwarding the

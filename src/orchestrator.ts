@@ -87,6 +87,22 @@ export interface OrchestratorOptions {
 const MAX_FINALIZE_REMINDERS = 3;
 
 /**
+ * Maximum number of full format-HELP rounds (L1a → L1b → L3) per agent
+ * before the task stops with 'protocol_violation'.
+ *
+ * Rationale: without a bound, the format-HELP loop can run until the
+ * task deadline without ever producing a valid tool_calls. Five rounds
+ * give the agent up to 15 nudges (3 per round), which is enough to
+ * distinguish "stuck on a specific format problem" from "cannot
+ * produce valid output". After that, the honest outcome is a terminal
+ * failure — no more auto-help.
+ *
+ * Malformed-tool-call HELP uses a separate counter (malformedRetryE)
+ * and is not merged into this limit.
+ */
+const MAX_FORMAT_ROUNDS = 5;
+
+/**
  * Extra time granted after the soft deadline so a graceful shutdown
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
@@ -108,6 +124,12 @@ export class Orchestrator {
   // Reset on the first successful step.
   private protocolRetryE = 0;
   private protocolRetryC = 0;
+
+  // Full format-HELP rounds per agent. One round = L1a → L1b → L3.
+  // Incremented when L3 fires; checked before starting a new L1a.
+  // Reset on the first successful step.
+  private formatRoundsE = 0;
+  private formatRoundsC = 0;
 
   // Last context_status from each agent (percent_used, etc.).
   private lastStatusE: ContextStatus | null = null;
@@ -604,6 +626,25 @@ export class Orchestrator {
             : this.protocolRetryC;
 
           if (retries === 0) {
+            // Guard: stop before opening a new round if the budget
+            // is exhausted. This is checked at the top of a round, so
+            // up to MAX_FORMAT_ROUNDS rounds complete in full.
+            const rounds = who === 'executor'
+              ? this.formatRoundsE
+              : this.formatRoundsC;
+            if (rounds >= MAX_FORMAT_ROUNDS) {
+              this.log.event(who, 'error', {
+                stage: 'protocol',
+                code: 'format_budget_exhausted',
+                rounds
+              });
+              this.stop(
+                'protocol_violation',
+                `format budget exhausted (${rounds} full rounds)`
+              );
+              return;
+            }
+
             // L1a: general hint.
             if (who === 'executor') this.protocolRetryE++;
             else this.protocolRetryC++;
@@ -696,6 +737,10 @@ export class Orchestrator {
             enriched: true
           });
           this.helpCycles++;
+
+          // One full round completed (L1a + L1b + L3).
+          if (who === 'executor') this.formatRoundsE++;
+          else this.formatRoundsC++;
 
           this.setPhase(who, 'awaiting_help', 'L3 synthesized');
           this.setPhase(other, 'helping', 'received synthesized HELP');
@@ -823,9 +868,11 @@ export class Orchestrator {
     if (who === 'executor') {
       this.protocolRetryE = 0;
       this.malformedRetryE = 0;
+      this.formatRoundsE = 0;
     } else {
       this.protocolRetryC = 0;
       this.malformedRetryC = 0;
+      this.formatRoundsC = 0;
     }
 
     // If handleToolCall did not move the agent into awaiting_help
