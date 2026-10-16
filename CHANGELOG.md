@@ -6,6 +6,15 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- **Fallback summary on any stop reason.** Previously `summary.md`
+  was written only for `done`, `deadlock`, `gave_up`, and `timeout`.
+  A live run stopped with `network_error` and left the user without
+  a report. Now the orchestrator writes a fallback summary whenever
+  the Critic did not, regardless of the stop reason. The Critic's
+  own summary is never overwritten.
+
+### Fixed
+
 - **Stop button aborts the retry loop.** Previously Stop only stopped
   the current Orchestrator; if the Orchestrator had already returned
   a retryable failure, the retry loop continued, sleeping backoff,

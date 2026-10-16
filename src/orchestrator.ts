@@ -487,15 +487,13 @@ export class Orchestrator {
       const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
 
       // Fallback summary when the Critic did not write one.
-      // Covers clean done, deadlock (empty queues), and gave_up
-      // (IMPOSSIBLE from an agent). All three end the task without
-      // the Critic having written a summary; the user still needs a
-      // persistent record of what happened.
-      if ((this.stopReason === 'done' ||
-           this.stopReason === 'deadlock' ||
-           this.stopReason === 'gave_up' ||
-           this.stopReason === 'timeout')
-          && !fs.existsSync(summaryPath)) {
+      // Unconditional on stop reason: whatever ended the task —
+      // done, timeout, network_error, user_stopped,
+      // protocol_violation, context_exhausted, crash — the user
+      // still needs a persistent record. The only condition is that
+      // the Critic has not written a summary itself; when it has,
+      // that file is left untouched.
+      if (!fs.existsSync(summaryPath)) {
         this.writeFallbackSummary(summaryPath, planPath);
       }
 
