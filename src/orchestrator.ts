@@ -55,6 +55,28 @@ export interface OrchestratorOptions {
   agentDirs?: { executor: string; critic: string };
 }
 
+/**
+ * Maximum number of "please call finalize" reminders the orchestrator
+ * sends to the Critic after the Executor has died (409
+ * context_exhausted).
+ *
+ * This is the only bounded counter in the orchestrator, and it is not
+ * a contradiction of the HELP protocol's "no iteration counters"
+ * principle. The difference is what the counter guards:
+ *
+ *   - HELP loop: agents search for a solution. That is a creative
+ *     process, unbounded by design — the only budget is time. A
+ *     numeric cap there would abort work that is still moving forward.
+ *
+ *   - This counter: the Executor is already dead and the task cannot
+ *     continue. The Critic is being asked to execute one mechanical
+ *     step — call the finalize tool. Three reminders are enough to
+ *     distinguish "still thinking" from "ignoring the instruction";
+ *     after that, stopping with an honest error is better than
+ *     looping until the timeout.
+ */
+const MAX_FINALIZE_REMINDERS = 3;
+
 export class Orchestrator {
   private queueE: QueuedItem[] = [];
   private queueC: QueuedItem[] = [];
@@ -79,9 +101,11 @@ export class Orchestrator {
   private deadE = false;
   private deadC = false;
 
-  // How many times Critic tried to message a dead Executor.
-  // Limit to 3 attempts, then force stop.
-  private criticFinalizeAttempts = 0;
+  // How many times the orchestrator has asked the Critic to finalize
+  // while the Executor was dead (409 context_exhausted). Bounded by
+  // MAX_FINALIZE_REMINDERS — see its comment for why this is the one
+  // place where a numeric counter is correct in this file.
+  private criticFinalizeReminders = 0;
 
   // When true, a stop('done') is treated as a graceful shutdown:
   // plan.md is preserved so the task can be resumed later. Set when
@@ -883,11 +907,11 @@ export class Orchestrator {
       // Special case: Executor is dead (409) and Critic is trying to reply.
       // Do not forward — ask Critic to finalize the task.
       if (to === 'executor' && this.deadE) {
-        this.criticFinalizeAttempts++;
-        if (this.criticFinalizeAttempts > 3) {
+        this.criticFinalizeReminders++;
+        if (this.criticFinalizeReminders > MAX_FINALIZE_REMINDERS) {
           this.stop(
             'deadlock',
-            'Critic did not finalize after 3 reminders.'
+            `Critic did not finalize after ${MAX_FINALIZE_REMINDERS} reminders.`
           );
           return false;
         }
