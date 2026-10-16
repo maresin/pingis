@@ -6,6 +6,13 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- **Chat-transition detection in the log.** When `percent_used` drops
+  by 50+ points between two consecutive responses from the same agent,
+  the orchestrator logs a `context_transition` event with the before
+  and after values. This is what a snapshot-and-RAG handoff to a new
+  chat looks like from the client's side. Observability only — no
+  control flow reads this event.
+
 - **Context markers documented in both prompts.** The `[CONTEXT WARNING]`
   and `[CONTEXT CRITICAL]` prefixes that the orchestrator injects into
   tool results are now explained in both system prompts, together with

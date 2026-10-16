@@ -95,8 +95,14 @@ function shortSummary(r: LogRecord): string {
     }
     case 'agent_phase':
       return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
+    case 'context_transition':
+      return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
+             `(chat switched)`;
     case 'agent_phase':
       return `${r.from} → ${r.to}${r.reason ? ` (${r.reason})` : ''}`;
+    case 'context_transition':
+      return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
+             `(chat switched)`;
     case 'context': {
       const p = r.percent_used;
       const used = r.chars_used;

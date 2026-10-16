@@ -103,6 +103,16 @@ const MAX_FINALIZE_REMINDERS = 3;
 const MAX_FORMAT_ROUNDS = 5;
 
 /**
+ * Minimum drop in percent_used between two consecutive responses from
+ * the same agent for the change to be reported as a chat transition.
+ *
+ * The API switches to a new chat around 90%; percent_used drops from
+ * high-80s to a low single digit. A 50-point threshold distinguishes
+ * that jump from ordinary fluctuations.
+ */
+const TRANSITION_DROP_POINTS = 50;
+
+/**
  * Extra time granted after the soft deadline so a graceful shutdown
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
@@ -134,6 +144,12 @@ export class Orchestrator {
   // Last context_status from each agent (percent_used, etc.).
   private lastStatusE: ContextStatus | null = null;
   private lastStatusC: ContextStatus | null = null;
+
+  // Previous percent_used seen from each agent. Used only to detect
+  // a chat transition (sharp drop) for logging. Never read for
+  // control flow.
+  private prevPercentE = -1;
+  private prevPercentC = -1;
 
   // Dead sessions: the agent hit 409 context_exhausted.
   private deadE = false;
@@ -564,6 +580,27 @@ export class Orchestrator {
       const cs = resp.context_status;
       if (who === 'executor') this.lastStatusE = cs;
       else this.lastStatusC = cs;
+
+      // Chat-transition detector: a sharp drop in percent_used means
+      // the API switched to a new chat (snapshot + RAG). Log it as a
+      // distinct event so the reader does not have to spot the jump.
+      // Observability only.
+      const prevPercent = who === 'executor'
+        ? this.prevPercentE
+        : this.prevPercentC;
+      if (prevPercent >= 0
+          && prevPercent - cs.percent_used >= TRANSITION_DROP_POINTS) {
+        this.log.event(who, 'context_transition', {
+          from_percent: prevPercent,
+          to_percent: cs.percent_used,
+          from_chars: (who === 'executor'
+            ? this.lastStatusE
+            : this.lastStatusC)?.chars_used ?? 0,
+          to_chars: cs.chars_used
+        });
+      }
+      if (who === 'executor') this.prevPercentE = cs.percent_used;
+      else this.prevPercentC = cs.percent_used;
 
       this.log.event(who, 'context', {
         agent: who,

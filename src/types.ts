@@ -187,6 +187,7 @@ export type LogEvent =
   | 'api_ready'
   | 'api_exit'
   | 'context'
+  | 'context_transition'
   | 'help'
   | 'artifact'
   | 'agent_phase';
