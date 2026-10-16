@@ -51,6 +51,12 @@ export interface OrchestratorOptions {
   deadlineAt: number;
   executorPrompt: string;
   criticPrompt: string;
+  /**
+   * Extra time granted after the soft deadline before the hard stop.
+   * Defaults to GRACE_MS. Exposed so probes can shrink the window
+   * without waiting two real minutes.
+   */
+  graceMs?: number;
   initialFiles?: string[];
   /**
    * Absolute paths to the per-agent state dirs under
@@ -332,7 +338,8 @@ export class Orchestrator {
 
     try {
       const softDeadline = this.opts.deadlineAt;
-      const hardDeadline = softDeadline + GRACE_MS;
+      const graceMs = this.opts.graceMs ?? GRACE_MS;
+      const hardDeadline = softDeadline + graceMs;
       let softFired = false;
 
       while (!this.stopped) {
@@ -346,6 +353,11 @@ export class Orchestrator {
               code: 'soft_deadline',
               detail: 'Asking Critic to finalize.'
             });
+            // Drop any pending Executor work. On timeout the Critic
+            // finalizes; if the Executor queue stayed non-empty, the
+            // hasE branch below would keep taking priority and the
+            // TIME_LIMIT message would never reach the Critic.
+            this.queueE.length = 0;
             this.pendingGracefulShutdown = true;
             this.queueC.push({
               msg: {
@@ -431,7 +443,8 @@ export class Orchestrator {
       // persistent record of what happened.
       if ((this.stopReason === 'done' ||
            this.stopReason === 'deadlock' ||
-           this.stopReason === 'gave_up')
+           this.stopReason === 'gave_up' ||
+           this.stopReason === 'timeout')
           && !fs.existsSync(summaryPath)) {
         this.writeFallbackSummary(summaryPath, planPath);
       }

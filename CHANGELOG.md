@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Graceful shutdown on timeout.** When the soft deadline fires, the
+  orchestrator now drops the Executor's pending queue before queuing
+  the `TIME_LIMIT:` message for the Critic. Previously the Executor's
+  non-empty queue kept taking priority in the main loop, and the
+  Critic never received the message — the task ran all the way to the
+  hard deadline instead of finalizing. The user saw a bare `timeout`
+  stop with no summary.
+- **Fallback summary on `timeout`.** `timeout` is now included in the
+  condition that writes `summary.md` when the Critic did not. After a
+  graceful shutdown the user finds both `plan.md` (preserved) and
+  `summary.md` (fallback) on disk.
+
 ### Added
 
 - **API configuration recorded in the task log.** `ENABLE_RAG`,
