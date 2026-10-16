@@ -147,6 +147,14 @@ const TRANSITION_DROP_POINTS = 50;
 const CHECKPOINT_NUDGE_AFTER = 15;
 
 /**
+ * Maximum number of [CONTINUATION] hints the orchestrator sends to
+ * the Executor in a single run when plan.md was present at start.
+ * Fires on each Executor step until the Executor sends any message
+ * to the Critic, or until this cap is reached.
+ */
+const MAX_CONTINUATION_NUDGES = 3;
+
+/**
  * Extra time granted after the soft deadline so a graceful shutdown
  * (Critic finalizing, plan.md / summary.md written) can complete.
  * Added once, to the absolute deadline, not once per attempt.
@@ -202,13 +210,17 @@ export class Orchestrator {
   private executeStreakC = 0;
 
   // Snapshot of plan.md existence at the moment run() started.
-  // Used by step() to inject the one-shot [CONTINUATION] hint.
+  // Used by step() to inject the [CONTINUATION] hint.
   private hasPlanAtStart = false;
 
-  // One-shot guard: true once the continuation nudge has been sent
-  // to the Executor in this run. Prevents repeated hints if the
-  // Executor chooses to ignore the first one.
-  private continuationNudged = false;
+  // Continuation nudge: fires on Executor steps while plan.md was
+  // present at start and the Executor has not yet sent any message
+  // to the Critic. Capped at MAX_CONTINUATION_NUDGES attempts per
+  // run. Live runs showed the Executor sometimes responds to the
+  // first hint, sometimes silently starts work; repeating helps in
+  // the second case without dominating the prompt.
+  private continuationNudgeCount = 0;
+  private continuationNudgeSatisfied = false;
 
   // Dead sessions: the agent hit 409 context_exhausted.
   private deadE = false;
@@ -649,21 +661,27 @@ export class Orchestrator {
       else this.executeStreakC = 0;
     }
 
-    // One-shot continuation nudge: if this run started with a plan
-    // present, remind the Executor on its first request to actually
-    // consult that plan and send RESUME:. Real runs showed Executor
-    // silently ignoring the protocol. We do not enforce; we hint.
+    // Continuation nudge: while the Executor has not yet sent any
+    // message to the Critic, remind it on each step to read plan.md
+    // and send RESUME:. Real runs showed the Executor sometimes
+    // ignores the protocol and silently starts work; a single
+    // one-shot hint was too easy to miss. Fires up to
+    // MAX_CONTINUATION_NUDGES times, then stops.
     if (who === 'executor'
         && this.hasPlanAtStart
-        && !this.continuationNudged) {
-      this.continuationNudged = true;
-      this.log.event(who, 'continuation_nudge', {});
+        && !this.continuationNudgeSatisfied
+        && this.continuationNudgeCount < MAX_CONTINUATION_NUDGES) {
+      this.continuationNudgeCount++;
+      this.log.event(who, 'continuation_nudge', {
+        attempt: this.continuationNudgeCount,
+        max: MAX_CONTINUATION_NUDGES
+      });
       msgForCall = {
         role: 'user',
         content:
           '[CONTINUATION] .pingis/plan.md exists from a prior run.\n\n' +
-          'First action: read that file, find the first unchecked ' +
-          'item (- [ ]), and send the Critic:\n\n' +
+          'First action: read that file, find the first stage not ' +
+          'marked [x], and send the Critic:\n\n' +
           '    RESUME: continuing from stage N/M.\n' +
           '    Already done: <brief>. Continuing with <stage name>.\n\n' +
           'Wait for APPROVE_PLAN before continuing work.\n\n' +
@@ -1132,9 +1150,15 @@ export class Orchestrator {
 
     if (tc.name === 'send_message') {
       // Any send_message counts as a check-in: reset the execute
-      // streak for this agent.
-      if (who === 'executor') this.executeStreakE = 0;
-      else this.executeStreakC = 0;
+      // streak for this agent, and (for the Executor) mark the
+      // continuation nudge as satisfied — no more [CONTINUATION]
+      // hints this run.
+      if (who === 'executor') {
+        this.executeStreakE = 0;
+        this.continuationNudgeSatisfied = true;
+      } else {
+        this.executeStreakC = 0;
+      }
 
       // Args are pre-validated by firstMalformedToolCall() in step();
       // that check aborts the whole batch before handleToolCall() runs.

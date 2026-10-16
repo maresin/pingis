@@ -98,7 +98,7 @@ function shortSummary(r: LogRecord): string {
     case 'checkpoint_nudge':
       return `${r.streak} executes without check-in`;
     case 'continuation_nudge':
-      return 'plan.md present; injected RESUME hint';
+      return `attempt ${r.attempt}/${r.max}; plan.md RESUME hint`;
     case 'context_transition':
       return `${r.who}: ${r.from_percent}% → ${r.to_percent}% ` +
              `(chat switched)`;

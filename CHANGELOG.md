@@ -6,6 +6,17 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- **Continuation nudge now repeats up to 3 times.** If the Executor
+  ignores the first `[CONTINUATION]` hint and starts work without
+  sending any message to the Critic, the nudge fires again on the
+  next Executor step, up to `MAX_CONTINUATION_NUDGES = 3`. It stops
+  early as soon as the Executor sends any message (RESUME, STAGE,
+  QUESTION — anything that counts as a check-in). Live runs showed
+  the Executor sometimes acknowledges and sometimes silently skips;
+  a single one-shot nudge was too fragile.
+
+### Changed
+
 - **Three-state plan markers in both prompts.** `plan.md` stages can
   now be marked `[ ]` (not started), `[~]` (attempted, not resolved),
   or `[x]` (complete). Resume logic continues from the first stage

@@ -1,9 +1,12 @@
 /**
- * Unit test for step 60 — continuation nudge.
+ * Unit test for step 62 — continuation nudge repeats until check-in.
  *
- * T1. plan.md present → first Executor request carries the
- *     [CONTINUATION] prefix; second does not.
- * T2. plan.md absent → no nudge ever.
+ * T1. plan.md present, Executor sends RESUME on its first response.
+ *     Nudge fires exactly once. Second Executor step has no prefix.
+ * T2. plan.md present, Executor ignores the hint and does five
+ *     executes in a row before finally sending a message. Nudge
+ *     fires on the first three steps (cap = 3), then no more.
+ * T3. plan.md absent — no nudge ever.
  *
  * Run:
  *   npx ts-node --project scripts/tsconfig.json scripts/probe-continuation-nudge.ts
@@ -120,16 +123,65 @@ function readLog(cwd: string): any[] {
 
 // ---------------------------------------------------------------------------
 
-async function t1_nudge_when_plan_present(): Promise<void> {
-  console.log('\nT1: plan.md present → nudge on first, not on second');
+async function t1_stops_after_first_check_in(): Promise<void> {
+  console.log('\nT1: Executor sends RESUME first → 1 nudge');
 
   const cwd = freshTmp('probe-cont-t1');
   fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.pingis', 'plan.md'),
-    '# Plan\n- [ ] 1. do a thing\n');
+    '# Plan\n- [ ] 5. do a thing\n');
 
-  // Executor: 2 executes, then ALL DONE. Critic: finalize.
   const apiE = new FakeApi('executor', [
+    { kind: 'tools',
+      calls: [{ name: 'send_message',
+                args: { to: 'critic',
+                        message: 'RESUME: continuing from stage 5.' } }] },
+    { kind: 'tools',
+      calls: [{ name: 'send_message',
+                args: { to: 'critic', message: 'ALL DONE: ok' } }] }
+  ]);
+  const apiC = new FakeApi('critic', [
+    { kind: 'tools',
+      calls: [{ name: 'send_message',
+                args: { to: 'executor', message: 'APPROVE_PLAN' } }] },
+    { kind: 'tools',
+      calls: [{ name: 'finalize', args: { comment: 'done' } }] }
+  ]);
+
+  await runOrch(cwd, apiE, apiC);
+  const lines = readLog(cwd);
+
+  const nudges = lines.filter(e => e.event === 'continuation_nudge');
+  check(nudges.length === 1,
+    `exactly one continuation_nudge (got ${nudges.length})`);
+  if (nudges.length === 1) {
+    check(nudges[0].attempt === 1,
+      `attempt = ${nudges[0].attempt} (expected 1)`);
+  }
+
+  const prefixed = apiE.receivedContents.filter(
+    c => c.startsWith('[CONTINUATION]')
+  );
+  check(prefixed.length === 1,
+    `exactly one executor request has [CONTINUATION] (got ${prefixed.length})`);
+  if (apiE.receivedContents.length >= 2) {
+    check(!apiE.receivedContents[1].startsWith('[CONTINUATION]'),
+      'second executor request has no prefix');
+  }
+}
+
+async function t2_repeats_until_cap(): Promise<void> {
+  console.log('\nT2: Executor ignores hint → 3 nudges, then stops');
+
+  const cwd = freshTmp('probe-cont-t2');
+  fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.pingis', 'plan.md'),
+    '# Plan\n- [ ] 5. do a thing\n');
+
+  const apiE = new FakeApi('executor', [
+    { kind: 'execute' },
+    { kind: 'execute' },
+    { kind: 'execute' },
     { kind: 'execute' },
     { kind: 'execute' },
     { kind: 'tools',
@@ -144,28 +196,34 @@ async function t1_nudge_when_plan_present(): Promise<void> {
   await runOrch(cwd, apiE, apiC);
   const lines = readLog(cwd);
 
-  const nudge = lines.filter(e => e.event === 'continuation_nudge');
-  check(nudge.length === 1,
-    `exactly one continuation_nudge (got ${nudge.length})`);
-  if (nudge.length === 1) {
-    check(nudge[0].who === 'executor',
-      `nudge agent = ${nudge[0].who} (expected executor)`);
+  const nudges = lines.filter(e => e.event === 'continuation_nudge');
+  check(nudges.length === 3,
+    `exactly three continuation_nudge (got ${nudges.length})`);
+  if (nudges.length === 3) {
+    const attempts = nudges.map((n: any) => n.attempt);
+    check(attempts[0] === 1 && attempts[1] === 2 && attempts[2] === 3,
+      `attempts = ${attempts.join(',')} (expected 1,2,3)`);
   }
 
-  const executorRequests = apiE.receivedContents;
-  const prefixed = executorRequests.filter(c => c.startsWith('[CONTINUATION]'));
-  check(prefixed.length === 1,
-    `exactly one executor request has [CONTINUATION] (got ${prefixed.length})`);
-  if (executorRequests.length >= 2) {
-    check(!executorRequests[1].startsWith('[CONTINUATION]'),
-      'second executor request has no prefix');
+  const prefixed = apiE.receivedContents.filter(
+    c => c.startsWith('[CONTINUATION]')
+  );
+  check(prefixed.length === 3,
+    `exactly three executor requests have [CONTINUATION] (got ${prefixed.length})`);
+
+  // Executor received 6 requests in total.
+  if (apiE.receivedContents.length >= 5) {
+    check(!apiE.receivedContents[3].startsWith('[CONTINUATION]'),
+      'fourth executor request has no prefix (cap reached)');
+    check(!apiE.receivedContents[4].startsWith('[CONTINUATION]'),
+      'fifth executor request has no prefix (cap reached)');
   }
 }
 
-async function t2_no_nudge_when_no_plan(): Promise<void> {
-  console.log('\nT2: plan.md absent → no nudge');
+async function t3_no_plan_no_nudge(): Promise<void> {
+  console.log('\nT3: plan.md absent → no nudge');
 
-  const cwd = freshTmp('probe-cont-t2');
+  const cwd = freshTmp('probe-cont-t3');
   fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
 
   const apiE = new FakeApi('executor', [
@@ -181,9 +239,10 @@ async function t2_no_nudge_when_no_plan(): Promise<void> {
 
   await runOrch(cwd, apiE, apiC);
   const lines = readLog(cwd);
-  const nudge = lines.filter(e => e.event === 'continuation_nudge');
-  check(nudge.length === 0,
-    `no continuation_nudge (got ${nudge.length})`);
+
+  const nudges = lines.filter(e => e.event === 'continuation_nudge');
+  check(nudges.length === 0,
+    `no continuation_nudge (got ${nudges.length})`);
 
   const prefixed = apiE.receivedContents.filter(
     c => c.startsWith('[CONTINUATION]')
@@ -195,12 +254,13 @@ async function t2_no_nudge_when_no_plan(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  await t1_nudge_when_plan_present();
-  await t2_no_nudge_when_no_plan();
+  await t1_stops_after_first_check_in();
+  await t2_repeats_until_cap();
+  await t3_no_plan_no_nudge();
 
   console.log();
   if (failures === 0) {
-    console.log('=== SUCCESS: continuation nudge works ===');
+    console.log('=== SUCCESS: continuation nudge repeat works ===');
     process.exit(0);
   } else {
     console.log(`=== FAILURE: ${failures} check(s) failed ===`);
