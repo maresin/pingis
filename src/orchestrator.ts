@@ -192,6 +192,15 @@ export class Orchestrator {
   private executeStreakE = 0;
   private executeStreakC = 0;
 
+  // Snapshot of plan.md existence at the moment run() started.
+  // Used by step() to inject the one-shot [CONTINUATION] hint.
+  private hasPlanAtStart = false;
+
+  // One-shot guard: true once the continuation nudge has been sent
+  // to the Executor in this run. Prevents repeated hints if the
+  // Executor chooses to ignore the first one.
+  private continuationNudged = false;
+
   // Dead sessions: the agent hit 409 context_exhausted.
   private deadE = false;
   private deadC = false;
@@ -288,6 +297,7 @@ export class Orchestrator {
     // reuse the same chat.
     const planPath = path.join(this.opts.cwd, '.pingis', 'plan.md');
     const hasPlan = fs.existsSync(planPath);
+    this.hasPlanAtStart = hasPlan;
 
     // Default to true when agentDirs are not provided (probe tests,
     // legacy callers) — keeps the previous behaviour.
@@ -628,6 +638,29 @@ export class Orchestrator {
       };
       if (who === 'executor') this.executeStreakE = 0;
       else this.executeStreakC = 0;
+    }
+
+    // One-shot continuation nudge: if this run started with a plan
+    // present, remind the Executor on its first request to actually
+    // consult that plan and send RESUME:. Real runs showed Executor
+    // silently ignoring the protocol. We do not enforce; we hint.
+    if (who === 'executor'
+        && this.hasPlanAtStart
+        && !this.continuationNudged) {
+      this.continuationNudged = true;
+      this.log.event(who, 'continuation_nudge', {});
+      msgForCall = {
+        role: 'user',
+        content:
+          '[CONTINUATION] .pingis/plan.md exists from a prior run.\n\n' +
+          'First action: read that file, find the first unchecked ' +
+          'item (- [ ]), and send the Critic:\n\n' +
+          '    RESUME: continuing from stage N/M.\n' +
+          '    Already done: <brief>. Continuing with <stage name>.\n\n' +
+          'Wait for APPROVE_PLAN before continuing work.\n\n' +
+          '---\n\n' +
+          msgForCall.content
+      };
     }
 
     let resp;

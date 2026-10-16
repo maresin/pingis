@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Continuation nudge.** When a task starts in a folder with
+  `.pingis/plan.md` present, the orchestrator prepends a one-shot
+  `[CONTINUATION]` hint to the Executor's first request: read the
+  plan, find the first unchecked stage, send `RESUME:` to the Critic.
+  Fires only once; if the Executor ignores it, the orchestrator does
+  not loop. Purpose: a live run showed Executor silently skipping the
+  resume protocol even though the plan was there. Observable as
+  `event: 'continuation_nudge'`.
+
+### Fixed
+
+- Default grace period raised from 120s to 300s. On long tasks the
+  Critic's first LLM turn alone can take ~55s, and finalizing
+  requires at least three turns. 120s left no room for the graceful
+  shutdown to complete before the hard deadline.
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

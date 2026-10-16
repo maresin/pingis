@@ -191,7 +191,8 @@ export type LogEvent =
   | 'help'
   | 'artifact'
   | 'agent_phase'
-  | 'checkpoint_nudge';
+  | 'checkpoint_nudge'
+  | 'continuation_nudge';
 
 export interface LogRecord {
   seq: number;

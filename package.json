@@ -97,7 +97,8 @@
     "probe:format-budget": "ts-node --project scripts/tsconfig.json scripts/probe-format-budget.ts",
     "probe:context-transition": "ts-node --project scripts/tsconfig.json scripts/probe-context-transition.ts",
     "probe:soft-deadline": "ts-node --project scripts/tsconfig.json scripts/probe-soft-deadline.ts",
-    "probe:checkpoint-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-checkpoint-nudge.ts"
+    "probe:checkpoint-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-checkpoint-nudge.ts",
+    "probe:continuation-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-continuation-nudge.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
