@@ -52,6 +52,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   private output?: vscode.OutputChannel;
   private log?: Logger;
   private agents?: AgentsProcess;
+  private abortController?: AbortController;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private ctx: vscode.ExtensionContext) {}
@@ -108,6 +109,10 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
         break;
       case 'stop':
         this.orchestrator?.stop('user_stopped', 'Stopped by user.');
+        // The orchestrator may already be gone (its run returned
+        // network_error and we are inside the retry loop). Abort the
+        // loop directly so Stop is not a no-op.
+        this.abortController?.abort();
         break;
       case 'pickFile':
         await this.onPickFile();
@@ -240,6 +245,13 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     const taskStartedAt = Date.now();
     const totalTimeoutMs = timeoutMin * 60_000;
 
+    // Abort controller for this task. The Stop button calls
+    // abort() — the retry loop honours it at every checkpoint, and
+    // the code below checks signal.aborted after runWithRetry to
+    // report user_stopped honestly.
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
+
     // Outer loop: restart only on 'protocol_violation' (format-HELP
     // budget exhausted inside one run). Time budget is shared across
     // iterations — taskStartedAt and totalTimeoutMs are fixed.
@@ -251,6 +263,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       maxRetries: MAX_RETRIES,
       backoffMs: RETRY_BACKOFF_MS,
       minRemainingMs: MIN_REMAINING_MS,
+      signal,
       isRetryable: (r) => RETRYABLE_STOP_REASONS.has(r),
       log: (event, payload) => {
         this.log?.event('orchestrator', 'retry', {
@@ -366,6 +379,17 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     }
     }
 
+    this.abortController = undefined;
+
+    // If the user asked to stop while the retry loop was running,
+    // report that instead of the underlying failure reason. The
+    // loop already exited at its nearest checkpoint.
+    if (signal.aborted) {
+      this.post({ type: 'retryDone' });
+      this.done('user_stopped', 'Stopped by user.');
+      return;
+    }
+
     this.post({ type: 'retryDone' });
     this.done(result.reason, result.summary);
   }
@@ -431,6 +455,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   }
 
   dispose(): void {
+    this.abortController?.abort();
     this.agents?.stop();
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();

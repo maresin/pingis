@@ -18,6 +18,30 @@
 import { OrchestratorResult, StopReason } from './types';
 
 /**
+ * Abort-aware sleep. Resolves when either the timer expires or the
+ * signal fires. Used for backoff between retry attempts so a user
+ * Stop is not delayed by up to 20s of pending backoff.
+ */
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+  if (signal.aborted) return Promise.resolve();
+
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
  * Decide whether a retry attempt should restart the API agents.
  *
  *   server_error / bad_gateway — the API process itself is unhealthy.
@@ -59,6 +83,15 @@ export interface RetryOptions {
   ) => Promise<void>;
 
   log: (event: string, payload: object) => void;
+
+  /**
+   * Optional abort signal. When it fires, the retry loop exits
+   * before the next runOnce and at the start/end of the backoff
+   * sleep. Used to make the UI Stop button actually stop the loop —
+   * previously it could only stop the current Orchestrator, which is
+   * already gone by the time a retry is scheduled.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -77,6 +110,11 @@ export async function runWithRetry(
   const deadlineAt = opts.taskStartedAt + opts.totalTimeoutMs;
 
   while (true) {
+    if (opts.signal?.aborted) {
+      opts.log('retry_abort', { reason: 'user_stopped', attempt });
+      break;
+    }
+
     const remainingMs = deadlineAt - Date.now();
 
     if (remainingMs < opts.minRemainingMs) {
@@ -89,6 +127,14 @@ export async function runWithRetry(
     }
 
     lastResult = await opts.runOnce(deadlineAt);
+
+    // Even if the attempt just finished, prefer reporting
+    // user_stopped over the underlying reason: the user asked to
+    // stop, and the next block would have sent the request anyway.
+    if (opts.signal?.aborted) {
+      opts.log('retry_abort', { reason: 'user_stopped', attempt });
+      break;
+    }
 
     if (!opts.isRetryable(lastResult.reason)) {
       break;
@@ -116,7 +162,13 @@ export async function runWithRetry(
     });
 
     await opts.onRetry(attempt, opts.maxRetries, lastResult.reason);
-    await sleep(waitMs);
+
+    if (opts.signal?.aborted) {
+      opts.log('retry_abort', { reason: 'user_stopped', attempt });
+      break;
+    }
+
+    await sleepWithAbort(waitMs, opts.signal);
   }
 
   return lastResult;

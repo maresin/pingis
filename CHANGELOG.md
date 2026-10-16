@@ -6,6 +6,18 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- **Stop button aborts the retry loop.** Previously Stop only stopped
+  the current Orchestrator; if the Orchestrator had already returned
+  a retryable failure, the retry loop continued, sleeping backoff,
+  restarting agents, and would have retried the task. The UI appeared
+  frozen for minutes. Now the Panel owns an AbortController per task;
+  Stop calls abort(), and the retry loop exits at its nearest
+  checkpoint (before/after runOnce, before/after the backoff sleep).
+  The stop reason is reported as `user_stopped`, not the underlying
+  failure.
+
+### Fixed
+
 - **No agent restart on `network_error` retry.** A transient
   `ECONNRESET` between the extension host and the API used to trigger
   a full stop-all + start-all cycle (30-60s per retry), which could

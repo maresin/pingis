@@ -71,9 +71,75 @@ async function t2_onRetry_receives_reason(): Promise<void> {
     `reasons[1] = ${reasons[1]} (expected server_error)`);
 }
 
+async function t3_abort_before_first_attempt(): Promise<void> {
+  console.log('\nT3: abort before first attempt → runOnce never called');
+
+  const controller = new AbortController();
+  controller.abort();
+
+  let calls = 0;
+  const result = await runWithRetry({
+    taskStartedAt: Date.now(),
+    totalTimeoutMs: 60_000,
+    maxRetries: 3,
+    backoffMs: [1, 1, 1],
+    minRemainingMs: 100,
+    signal: controller.signal,
+    isRetryable: (r) => r === 'network_error',
+    runOnce: async () => {
+      calls++;
+      return { reason: 'done' };
+    },
+    onRetry: async () => { /* no-op */ },
+    log: () => { /* silent */ }
+  });
+
+  check(calls === 0, `runOnce never called (got ${calls})`);
+  check(result.reason === 'crash',
+    `result.reason = ${result.reason} (default crash)`);
+}
+
+async function t4_abort_during_backoff(): Promise<void> {
+  console.log('\nT4: abort during backoff → loop exits promptly');
+
+  const controller = new AbortController();
+  let calls = 0;
+
+  // Long backoff (10s) but we abort after 20ms. If abort works,
+  // the loop finishes well before the backoff would have.
+  const started = Date.now();
+  const resultPromise = runWithRetry({
+    taskStartedAt: Date.now(),
+    totalTimeoutMs: 60_000,
+    maxRetries: 3,
+    backoffMs: [10_000, 10_000, 10_000],
+    minRemainingMs: 100,
+    signal: controller.signal,
+    isRetryable: (r) => r === 'network_error',
+    runOnce: async () => {
+      calls++;
+      return { reason: 'network_error' };
+    },
+    onRetry: async () => { /* no-op */ },
+    log: () => { /* silent */ }
+  });
+
+  setTimeout(() => controller.abort(), 20);
+  const result = await resultPromise;
+  const elapsed = Date.now() - started;
+
+  check(calls === 1, `runOnce called once (got ${calls})`);
+  check(elapsed < 1000,
+    `finished in ${elapsed}ms (well under the 10s backoff)`);
+  check(result.reason === 'network_error',
+    `result.reason = ${result.reason} (last attempt)`);
+}
+
 async function main(): Promise<void> {
   t1_decision_table();
   await t2_onRetry_receives_reason();
+  await t3_abort_before_first_attempt();
+  await t4_abort_during_backoff();
 
   console.log();
   if (failures === 0) {
