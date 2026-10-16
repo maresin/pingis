@@ -69,7 +69,20 @@ class FakeApi {
 }
 
 class FakeExecutor {
+  constructor(private cwd: string) {}
+
   async run(call_id: string, script: string): Promise<ExecResult> {
+    // In real use, the Critic writes .pingis/summary.md via execute.
+    // When the fake script mentions summary.md, simulate that write
+    // so probes can verify the orchestrator leaves the file alone.
+    if (script.includes('summary.md')) {
+      const dir = path.join(this.cwd, '.pingis');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'summary.md'),
+        '# Task summary\n\nCritic-authored content. Do not touch.\n'
+      );
+    }
     return {
       call_id, command: 'noop', exit_code: 0, duration_ms: 1,
       stdout: 'ok\n', stderr: '',
@@ -91,7 +104,7 @@ async function runOrch(
   const orch = new Orchestrator(
     apiE as unknown as ApiClient,
     apiC as unknown as ApiClient,
-    new FakeExecutor() as unknown as Executor,
+    new FakeExecutor(cwd) as unknown as Executor,
     new NullPanel(),
     log,
     {
@@ -172,14 +185,10 @@ async function t3_critic_summary_untouched(): Promise<void> {
   const cwd = freshTmp('probe-fallback-t3');
   fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
 
-  // Executor: ALL DONE. Critic: execute (to write summary), finalize.
-  // The FakeExecutor is stubbed — it does not actually write a file.
-  // So we create summary.md up front to simulate the Critic having
-  // written it before finalize.
-  const summary = path.join(cwd, '.pingis', 'summary.md');
-  fs.writeFileSync(summary,
-    '# Task summary\n\nCritic-authored content. Do not touch.\n');
-
+  // Executor: ALL DONE. Critic: execute that writes summary.md
+  // (FakeExecutor simulates the write when the script mentions
+  // summary.md), then finalize. The orchestrator must leave the
+  // file untouched.
   const apiE = new FakeApi('executor', [
     { kind: 'tools',
       calls: [{ name: 'send_message',
@@ -187,11 +196,15 @@ async function t3_critic_summary_untouched(): Promise<void> {
   ]);
   const apiC = new FakeApi('critic', [
     { kind: 'tools',
+      calls: [{ name: 'execute',
+                args: { script: 'print("write .pingis/summary.md")' } }] },
+    { kind: 'tools',
       calls: [{ name: 'finalize', args: { comment: 'done' } }] }
   ]);
 
   await runOrch(cwd, apiE, apiC);
 
+  const summary = path.join(cwd, '.pingis', 'summary.md');
   const text = fs.readFileSync(summary, 'utf-8');
   check(text.includes('Critic-authored content'),
     'critic summary not overwritten');
@@ -201,10 +214,47 @@ async function t3_critic_summary_untouched(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
+async function t4_stale_summary_cleared(): Promise<void> {
+  console.log('\nT4: stale summary.md is cleared at task start');
+
+  const cwd = freshTmp('probe-fallback-t4');
+  fs.mkdirSync(path.join(cwd, '.pingis'), { recursive: true });
+  // A stale summary from a previous task. It must not survive.
+  fs.writeFileSync(path.join(cwd, '.pingis', 'summary.md'),
+    '# Stale summary from a previous task. Must not survive.\n');
+
+  const apiE = new FakeApi('executor', [
+    { kind: 'throw_stop', reason: 'network_error' }
+  ]);
+  const apiC = new FakeApi('critic', []);
+
+  await runOrch(cwd, apiE, apiC);
+  const lines = readLog(cwd);
+
+  const reset = lines.find(
+    e => e.event === 'artifact'
+      && e.action === 'reset'
+      && e.kind === 'summary'
+  );
+  const summary = path.join(cwd, '.pingis', 'summary.md');
+
+  check(!!reset, 'artifact reset summary event logged');
+  check(fs.existsSync(summary),
+    'summary.md exists after run (fallback wrote it)');
+  if (fs.existsSync(summary)) {
+    const content = fs.readFileSync(summary, 'utf-8');
+    check(!content.includes('Stale summary'),
+      'old content gone');
+    check(content.includes('fallback'),
+      'fallback content present');
+  }
+}
+
 async function main(): Promise<void> {
   await t1_network_error();
   await t2_unknown_tool();
   await t3_critic_summary_untouched();
+  await t4_stale_summary_cleared();
 
   console.log();
   if (failures === 0) {

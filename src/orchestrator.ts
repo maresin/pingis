@@ -376,6 +376,30 @@ export class Orchestrator {
       });
     }
 
+    // Clear stale summary.md from a previous task. Like plan.md,
+    // summary.md is state for THIS task, not the previous one.
+    // Leaving it in place would make the fallback writer a no-op
+    // (it checks !fs.existsSync) and would show the user a report
+    // about a different task.
+    const staleSummary = path.join(this.opts.cwd, '.pingis', 'summary.md');
+    if (fs.existsSync(staleSummary)) {
+      try {
+        fs.unlinkSync(staleSummary);
+        this.log.event('orchestrator', 'artifact', {
+          action: 'reset',
+          kind: 'summary',
+          reason: 'new task',
+          path: staleSummary
+        });
+      } catch (e) {
+        this.log.event('orchestrator', 'error', {
+          stage: 'summary_reset',
+          code: 'unlink_failed',
+          detail: String(e)
+        });
+      }
+    }
+
     this.queueE.push({
       msg: { role: 'user', content: 'Start the task.' },
       files: this.opts.initialFiles

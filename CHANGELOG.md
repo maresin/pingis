@@ -6,6 +6,15 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- **Stale `summary.md` cleared at task start.** A new task now
+  removes any `summary.md` left from a previous run before work
+  begins. Previously the file persisted, the step-65 fallback saw
+  it and skipped its own write, and a failed Critic could leave the
+  user reading a report about a different task. The file is state
+  for THIS task; it should not survive into the next one.
+
+### Fixed
+
 - **Fallback summary on any stop reason.** Previously `summary.md`
   was written only for `done`, `deadlock`, `gave_up`, and `timeout`.
   A live run stopped with `network_error` and left the user without
