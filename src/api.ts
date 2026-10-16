@@ -18,8 +18,7 @@ export class AgentSession {
   readonly systemPrompt: string;
 
   // Written by handleSuccess from the API response, cleared by
-  // newChat(), never sent back to the API. Part of the unused
-  // newChat path; see the note on ApiClient.newChat below.
+  // newChat(). Never sent back to the API - informational only.
   chatSessionId: string | null = null;
   isFirstCall = true;
   cookieHeader = '';
@@ -36,7 +35,17 @@ export class AgentSession {
       .split(/,(?=[^ ])/)
       .map(c => c.split(';')[0].trim())
       .filter(Boolean);
-    this.cookieHeader = pairs.join('; ');
+
+    // Merge by cookie name. A response that sets only one cookie
+    // must not silently drop the others we already know about.
+    const map = new Map<string, string>();
+    const put = (kv: string) => {
+      const eq = kv.indexOf('=');
+      if (eq > 0) map.set(kv.slice(0, eq), kv.slice(eq + 1));
+    };
+    for (const p of this.cookieHeader.split('; ')) put(p);
+    for (const p of pairs) put(p);
+    this.cookieHeader = Array.from(map, ([k, v]) => `${k}=${v}`).join('; ');
   }
 }
 
@@ -87,48 +96,14 @@ export class ApiClient {
   }
 
   /**
-   * STATUS (step33): wired into orchestration. Called from
-   * Orchestrator.run() before the first request when `.pingis/plan.md`
-   * is absent — i.e. when the current task is a fresh one, not a
-   * continuation. This resets the server-side chat so no history
-   * leaks from the previous task. When plan.md exists (continuation),
-   * newChat is not called and ENABLE_RESTORE=true reopens the prior
-   * chat from chat_state.json.
+   * Reset the server-side chat. Called from Orchestrator.run() when
+   * the current task is fresh - either no `.pingis/plan.md`, or the
+   * `.last-project` marker does not match the current cwd.
    *
-   * WHAT IT DOES
-   *   POST /v1/chat/new  body { restore }
-   *   On success: session.isFirstCall = true, session.chatSessionId = null.
-   *   restore=false -> server discards the current chat, next request
-   *                    starts a new one.
-   *   restore=true  -> server re-reads chat_state.json.
-   *
-   * WHY IT MATTERS
-   *   make-multi-agent.sh writes ENABLE_RESTORE=true (default) into
-   *   every agent.env. With that flag, the API restores the previous
-   *   chat on process start. Pingis then sends a fresh system prompt
-   *   into an old conversation. Nobody in Pingis decides new-vs-resume
-   *   — that decision currently lives only in the Executor prompt
-   *   ("check .pingis/plan.md, send RESUME:"), not in TS.
-   *
-   * OPEN QUESTIONS (answer with step31 tests on a live agent)
-   *   1. With ENABLE_RESTORE=true, does a restarted API process
-   *      actually restore the previous chat for the *next* request?
-   *   2. If yes, does Pingis's fresh system prompt get merged with the
-   *      restored history? What does the model see?
-   *   3. With ENABLE_RESTORE=false, is chat_state.json ignored?
-   *   4. Does POST /v1/chat/new { restore: false } clear chat_state.json
-   *      on disk, or only in memory?
-   *
-   * OPTIONS once (1)-(4) are known:
-   *   M1. Leave as-is. Rely on the API + ENABLE_RESTORE. Risky for new
-   *       tasks if the API restores old chats unconditionally.
-   *   M2. Wire Pingis to decide: parse .pingis/plan.md in TS, call
-   *       newChat(session, false) for a fresh task, no-op for resume.
-   *   M3. Call newChat(session, false) unconditionally at task start.
-   *       Resume then works purely through plan.md + RESUME:.
-   *
-   * Do not delete until (1)-(4) are answered; do not wire it up before
-   * that either.
+   * POST /v1/chat/new { restore: false }. Best-effort: failures are
+   * logged and do not abort the task. A stale chat is unpleasant but
+   * not fatal, and blocking start on it would make the extension
+   * unusable when the API is half-up.
    */
   async newChat(session: AgentSession, restore = false): Promise<void> {
     const controller = new AbortController();

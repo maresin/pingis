@@ -9,8 +9,8 @@
  *       working → format_retry → working.
  *   T3. HELP loop: Executor sends HELP:, Critic replies HELP_RESPONSE:,
  *       Executor sends SOLVED:. Expect transitions:
- *         E: working → awaiting_help, then back to working / idle
- *         C: working → helping, then back to idle
+ *         E: working → awaiting_help
+ *       C: idle → helping → working
  *
  * The probe reads `agent_phase` events from session.log and asserts
  * that the expected transitions are present. Exact ordering is not

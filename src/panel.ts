@@ -252,6 +252,7 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
+    try {
     // Outer loop: restart only on 'protocol_violation' (format-HELP
     // budget exhausted inside one run). Time budget is shared across
     // iterations — taskStartedAt and totalTimeoutMs are fixed.
@@ -379,8 +380,6 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
     }
     }
 
-    this.abortController = undefined;
-
     // If the user asked to stop while the retry loop was running,
     // report that instead of the underlying failure reason. The
     // loop already exited at its nearest checkpoint.
@@ -392,6 +391,17 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
 
     this.post({ type: 'retryDone' });
     this.done(result.reason, result.summary);
+    } catch (e: any) {
+      this.log?.event('orchestrator', 'error', {
+        stage: 'panel',
+        code: 'orchestrator_unhandled',
+        detail: String(e)
+      });
+      this.post({ type: 'retryDone' });
+      this.done('crash', String(e?.message ?? e));
+    } finally {
+      this.abortController = undefined;
+    }
   }
 
   private async onPickFile(): Promise<void> {
@@ -428,6 +438,16 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
       );
     }
 
+    const totalBytes = files.reduce((s, f) => s + f.content.length, 0);
+    if (totalBytes > 1_000_000) {
+      vscode.window.showWarningMessage(
+        `Attachments total ${(totalBytes / 1024).toFixed(0)} KB. ` +
+        `Attachments are for task descriptions only - data files belong ` +
+        `in the project directory. Large descriptions eat the agents' ` +
+        `context budget.`
+      );
+    }
+
     if (files.length > 0) {
       this.post({ type: 'filesAttached', files });
     }
@@ -457,6 +477,8 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
   dispose(): void {
     this.abortController?.abort();
     this.agents?.stop();
+    this.output?.dispose();
+    this.output = undefined;
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }

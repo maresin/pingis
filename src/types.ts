@@ -180,8 +180,6 @@ export type LogEvent =
   | 'retry'
   | 'error'
   | 'stop'
-  // No emitter in src/; belongs to the unused ApiClient.newChat path.
-  // See the note on ApiClient.newChat.
   | 'chat_new'
   | 'api_spawn'
   | 'api_ready'

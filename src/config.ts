@@ -3,10 +3,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 export interface AgentEndpoint {
-  // Currently unused. Intended for logging agent identity
-  // (agent-1 / agent-2) next to executor / critic in api_ready /
-  // api_exit events. Remove if no such log line is planned.
-  name: string;      // "agent-1" | "agent-2"
   dir: string;       // absolute path to agent-N/
   port: number;
   apiKey: string;
@@ -91,7 +87,7 @@ function readAgent(root: string, index: number): AgentEndpoint {
   // Caller must check deploymentExists() first.
   if (!fs.existsSync(envPath) || !fs.existsSync(keyPath)) {
     return {
-      name, dir, port: 0, apiKey: '',
+      dir, port: 0, apiKey: '',
       enableRag: false, enableSnapshot: false, enableRestore: false
     };
   }
@@ -108,7 +104,7 @@ function readAgent(root: string, index: number): AgentEndpoint {
   }
 
   return {
-    name, dir, port, apiKey,
+    dir, port, apiKey,
     enableRag: parseBool(env.ENABLE_RAG),
     enableSnapshot: parseBool(env.ENABLE_SNAPSHOT),
     enableRestore: parseBool(env.ENABLE_RESTORE)

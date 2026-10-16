@@ -4,98 +4,107 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-### Changed
-
-- **Grace period 300s → 30 minutes.** Live runs6 showed the Critic's
-  first LLM turn after soft deadline can take 89+ seconds, and
-  finalizing needs 2-3 more turns. 5 minutes was not enough for a
-  slow DeepSeek Web. The task budget still caps the run; only the
-  window after the soft deadline grew.
-
-- **`TIME_LIMIT:` handler rewritten as a strict three-turn flow.**
-  The Critic now: (1) one execute to gather plan.md + 2-3 recent run
-  logs, (2) one execute to write summary.md, (3) one finalize. No
-  open-ended investigation. A short honest summary beats a thorough
-  one that misses the deadline.
-
-### Fixed
-
-- **Stale `summary.md` cleared at task start.** A new task now
-  removes any `summary.md` left from a previous run before work
-  begins. Previously the file persisted, the step-65 fallback saw
-  it and skipped its own write, and a failed Critic could leave the
-  user reading a report about a different task. The file is state
-  for THIS task; it should not survive into the next one.
-
-### Fixed
-
-- **Fallback summary on any stop reason.** Previously `summary.md`
-  was written only for `done`, `deadlock`, `gave_up`, and `timeout`.
-  A live run stopped with `network_error` and left the user without
-  a report. Now the orchestrator writes a fallback summary whenever
-  the Critic did not, regardless of the stop reason. The Critic's
-  own summary is never overwritten.
-
-### Fixed
-
-- **Stop button aborts the retry loop.** Previously Stop only stopped
-  the current Orchestrator; if the Orchestrator had already returned
-  a retryable failure, the retry loop continued, sleeping backoff,
-  restarting agents, and would have retried the task. The UI appeared
-  frozen for minutes. Now the Panel owns an AbortController per task;
-  Stop calls abort(), and the retry loop exits at its nearest
-  checkpoint (before/after runOnce, before/after the backoff sleep).
-  The stop reason is reported as `user_stopped`, not the underlying
-  failure.
-
-### Fixed
-
-- **No agent restart on `network_error` retry.** A transient
-  `ECONNRESET` between the extension host and the API used to trigger
-  a full stop-all + start-all cycle (30-60s per retry), which could
-  hang for minutes if the network was still flaky. Restart is now
-  reserved for `server_error` / `bad_gateway`, where the API process
-  is actually unhealthy. For `network_error` the retry loop waits
-  the backoff and retries with the same agents.
-
-### Changed
-
-- **Continuation nudge now repeats up to 3 times.** If the Executor
-  ignores the first `[CONTINUATION]` hint and starts work without
-  sending any message to the Critic, the nudge fires again on the
-  next Executor step, up to `MAX_CONTINUATION_NUDGES = 3`. It stops
-  early as soon as the Executor sends any message (RESUME, STAGE,
-  QUESTION — anything that counts as a check-in). Live runs showed
-  the Executor sometimes acknowledges and sometimes silently skips;
-  a single one-shot nudge was too fragile.
-
-### Changed
-
-- **Three-state plan markers in both prompts.** `plan.md` stages can
-  now be marked `[ ]` (not started), `[~]` (attempted, not resolved),
-  or `[x]` (complete). Resume logic continues from the first stage
-  that is not `[x]`, so `[~]` stages are revisited. Previously a
-  binary `[ ]` / `[x]` lost the "attempted but not resolved" state —
-  a live ASDI run marked a failed exploratory stage as `[x]`, which
-  hid from a later reader that the track needed follow-up.
+## [0.5.0] - 2026-10-17
 
 ### Added
 
 - **Continuation nudge.** When a task starts in a folder with
-  `.pingis/plan.md` present, the orchestrator prepends a one-shot
-  `[CONTINUATION]` hint to the Executor's first request: read the
-  plan, find the first unchecked stage, send `RESUME:` to the Critic.
-  Fires only once; if the Executor ignores it, the orchestrator does
-  not loop. Purpose: a live run showed Executor silently skipping the
-  resume protocol even though the plan was there. Observable as
-  `event: 'continuation_nudge'`.
+  `.pingis/plan.md` present, the orchestrator prepends a
+  `[CONTINUATION]` hint to the Executor's request. Fires on each
+  Executor step up to `MAX_CONTINUATION_NUDGES = 3` times, stopping
+  early as soon as the Executor sends any message to the Critic. The
+  previous one-shot hint was too easy to miss.
+- **Soft checkpoint nudge.** After `CHECKPOINT_NUDGE_AFTER = 15`
+  consecutive `execute` calls without an intervening `send_message`,
+  the orchestrator prepends a `[CHECKPOINT]` reminder to the next
+  request. Not a stop; a cue that check-ins are expected.
+- **Per-agent phase tracking.** Each agent's coarse state
+  (`idle` / `working` / `format_retry` / `awaiting_help` / `helping`)
+  is now recorded and logged as `agent_phase`. Observability only —
+  no control flow reads these fields yet.
+- **Chat-transition detection.** A sharp drop in `percent_used`
+  (>= 50 points) between two consecutive responses from the same
+  agent is logged as `context_transition`. This is what a
+  snapshot-and-RAG handoff to a new chat looks like from the
+  client's side.
+- **API configuration recorded in `task_start`.** `ENABLE_RAG`,
+  `ENABLE_SNAPSHOT` and `ENABLE_RESTORE` are read from each agent's
+  `agent.env` and written into the task-start event.
+- **Context markers documented in both prompts.** The
+  `[CONTEXT WARNING]` and `[CONTEXT CRITICAL]` prefixes that the
+  orchestrator injects into tool results are now explained in both
+  system prompts.
+- **Format-restart in Panel.** When the format-HELP budget inside a
+  single run is exhausted (`protocol_violation`), the Panel restarts
+  the agents, resets both chats via `POST /v1/chat/new`, and re-runs
+  the same task with `plan.md` still on disk. Up to two such
+  restarts, sharing the original task time budget.
+- **Bounded format-HELP.** The loop that recovers from unparseable
+  `tool_calls` now stops after 5 full rounds with
+  `protocol_violation`. Malformed-tool-call HELP uses a separate
+  counter and is not merged into this limit.
+
+### Changed
+
+- **`HELP_RESPONSE` messages carry a "Return to your original task"
+  preamble.** The orchestrator restores the recipient's original
+  framing of the task (captured when it sent `HELP:`) instead of
+  forwarding the suggestion as the next request.
+- **Three-state plan markers.** `plan.md` stages can now be
+  `[ ]` (not started), `[~]` (attempted, not resolved) or
+  `[x]` (complete). Resume logic continues from the first stage that
+  is not `[x]`, so `[~]` stages are revisited.
+- **`StopReason` split: `gave_up`.** An agent's `IMPOSSIBLE` now
+  stops the task with reason `gave_up`, distinct from `deadlock`
+  (which means the orchestrator ran out of work — an internal error).
+- **Default grace period 300s → 30 minutes.** The task budget still
+  caps the run; only the window after the soft deadline grew. Live
+  runs showed the Critic's first LLM turn alone can take 89+ seconds.
+- **`TIME_LIMIT:` handler rewritten as a strict three-turn flow.**
+  One execute to gather context, one execute to write `summary.md`,
+  one `finalize`. No open-ended investigation.
+- **Continuation nudge fires up to 3 times** instead of once, and
+  stops as soon as the Executor checks in.
 
 ### Fixed
 
-- Default grace period raised from 120s to 300s. On long tasks the
-  Critic's first LLM turn alone can take ~55s, and finalizing
-  requires at least three turns. 120s left no room for the graceful
-  shutdown to complete before the hard deadline.
+- **No agent restart on `network_error` retry.** A transient
+  `ECONNRESET` used to trigger a full stop-all + start-all cycle
+  (30–60 s per retry). Restart is now reserved for `server_error` /
+  `bad_gateway`.
+- **Stop button aborts the retry loop.** Previously the Stop button
+  only stopped the current Orchestrator; if the retry loop was
+  already running, nothing happened and the UI appeared frozen. Now
+  the Panel owns an `AbortController` per task; the retry loop exits
+  at its nearest checkpoint and reports `user_stopped`.
+- **Graceful shutdown on timeout.** The soft-deadline handler now
+  drops the Executor queue before queueing the `TIME_LIMIT:` message
+  for the Critic. Previously the Executor's non-empty queue kept
+  taking priority and the Critic never received the message.
+- **Fallback `summary.md` on any stop reason.** Previously written
+  only for a fixed list of reasons; a live run stopped with
+  `network_error` and left the user without a report. Now written
+  whenever the Critic did not write one.
+- **Stale `summary.md` cleared at task start.** A new task removes
+  any `summary.md` left from a previous run before work begins.
+- **Malformed tool calls retry** once with a hint instead of stopping
+  the task immediately. If the retry also fails, the orchestrator
+  hands off to the other agent via HELP.
+- **Help-loop hints attached to the current request** instead of
+  being queued as separate messages. Previously the agent never saw
+  them and the queue kept growing.
+- **When HELP is synthesized, the recipient's queue is replaced**
+  rather than appended to, so there is never more than one pending
+  message per agent.
+- **Tool results from a halted batch are now persisted.** If a batch
+  like `[execute, unknown_tool]` was interrupted by `stop()`, the
+  side effects of the first call were previously invisible in the
+  log. They are now written and logged before the task stops.
+- **`absorbCookies` merges by name.** A response that set only one
+  cookie used to silently drop all previously seen cookies.
+- **Output channel is disposed** when the panel is disposed.
+- **`onStart` catches unexpected rejections.** A failing `onRetry`
+  no longer leaks an unhandled rejection; the task reports `crash`.
 
 ## [0.4.0] - 2026-10-16
 

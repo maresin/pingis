@@ -173,7 +173,3 @@ export async function runWithRetry(
 
   return lastResult;
 }
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}

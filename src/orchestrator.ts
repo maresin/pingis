@@ -1033,15 +1033,20 @@ export class Orchestrator {
     else this.malformedRetryC = 0;
 
     const execResults: ExecResult[] = [];
+    let halted = false;
 
     for (const tc of resp.tool_calls) {
       const cont = await this.handleToolCall(who, tc, execResults);
       if (!cont) {
-        this.panel.setStatus(who, 'idle');
-        return;
+        halted = true;
+        break;
       }
     }
 
+    // Persist whatever executed, even if the batch was halted
+    // mid-way (unknown_tool, finalize from executor, etc.). Without
+    // this, the side effects of the first call(s) would be invisible
+    // in the log.
     if (execResults.length > 0) {
       const rf = writeToolResults(execResults);
       this.toolResultCleanups.push(rf.cleanup);
@@ -1050,18 +1055,25 @@ export class Orchestrator {
         to: who,
         kind: 'tool_results',
         count: execResults.length,
-        file: rf.path
+        file: rf.path,
+        halted
       });
-      const contextPrefix = this.buildContextHint(who);
+      if (!halted) {
+        const contextPrefix = this.buildContextHint(who);
+        queue.push({
+          msg: {
+            role: 'user',
+            content: contextPrefix +
+              'Result of the previous tool call is attached.'
+          },
+          files: [rf.path]
+        });
+      }
+    }
 
-      queue.push({
-        msg: {
-          role: 'user',
-          content: contextPrefix +
-            'Result of the previous tool call is attached.'
-        },
-        files: [rf.path]
-      });
+    if (halted) {
+      this.panel.setStatus(who, 'idle');
+      return;
     }
 
     // Successful step — reset this agent's retry counters.

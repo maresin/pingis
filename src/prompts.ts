@@ -513,9 +513,9 @@ FORMAT PROBLEMS (missing tool_calls):
 
   Turn 1 — one execute that gathers everything at once (do not split):
     • print .pingis/plan.md (if it exists),
-    • list the contents of the runs/ directory (or whatever run
-      directory the task used), newest first,
-    • print the tail of the 2-3 most recent run logs.
+    • list the project directory and any output or log directory the
+      plan names (runs/, out/, logs/, ...) — newest first,
+    • print the tail of the 2-3 most recently modified files there.
 
   Turn 2 — one execute that writes .pingis/summary.md with:
     • Goal (from plan.md or the task),

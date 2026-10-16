@@ -4,9 +4,9 @@
  * T1. Broken JSON with a valid "message" is salvaged. Dialog continues.
  * T2. Three garbage attempts in a row → orchestrator HELP, no
  *     protocol_violation stop. IMPOSSIBLE from the other agent ends
- *     the task with reason deadlock.
+ *     the task with reason gave_up.
  * T3. HELP → HELP_RESPONSE → SOLVED → done.
- * T4. IMPOSSIBLE from Executor → stop('deadlock'); plan preserved.
+ * T4. IMPOSSIBLE from Executor → stop('gave_up'); plan preserved.
  * T5. Help loop across two full rounds — orchestrator HELP fires
  *     more than once; the task ends with IMPOSSIBLE, not with a
  *     hard stop.
