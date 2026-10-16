@@ -17,7 +17,7 @@ import { Logger, LogSink } from './log';
 import { PanelLike, Orchestrator } from './orchestrator';
 import { buildSystemPrompts } from './prompts';
 import { probeResources } from './resources';
-import { runWithRetry } from './retry';
+import { runWithRetry, shouldRestartAgentsOnRetry } from './retry';
 
 const RETRYABLE_STOP_REASONS: ReadonlySet<StopReason> = new Set([
   'network_error',
@@ -301,11 +301,22 @@ export class PanelProvider implements vscode.WebviewViewProvider, PanelLike {
 
         return await this.orchestrator.run();
       },
-      onRetry: async (attempt, max) => {
+      onRetry: async (attempt, max, reason) => {
         this.post({ type: 'retrying', attempt, max });
-        this.agents?.stop();
-        this.agents = new AgentsProcess(apiDir, this.log!);
-        await this.agents.ensureRunning();
+        if (shouldRestartAgentsOnRetry(reason)) {
+          this.agents?.stop();
+          this.agents = new AgentsProcess(apiDir, this.log!);
+          await this.agents.ensureRunning();
+        } else {
+          // network_error (and anything else not covered by the
+          // helper): agents are fine, just wait the backoff. This
+          // avoids a 30-60s Chromium restart on every transient
+          // network blip.
+          this.log?.event('orchestrator', 'retry', {
+            __phase: 'skip_agent_restart',
+            reason
+          });
+        }
       }
     });
 

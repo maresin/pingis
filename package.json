@@ -99,7 +99,8 @@
     "probe:soft-deadline": "ts-node --project scripts/tsconfig.json scripts/probe-soft-deadline.ts",
     "probe:checkpoint-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-checkpoint-nudge.ts",
     "probe:continuation-nudge": "ts-node --project scripts/tsconfig.json scripts/probe-continuation-nudge.ts",
-    "probe:plan-markers": "ts-node --project scripts/tsconfig.json scripts/probe-plan-markers.ts"
+    "probe:plan-markers": "ts-node --project scripts/tsconfig.json scripts/probe-plan-markers.ts",
+    "probe:retry-restart": "ts-node --project scripts/tsconfig.json scripts/probe-retry-restart.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

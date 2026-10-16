@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **No agent restart on `network_error` retry.** A transient
+  `ECONNRESET` between the extension host and the API used to trigger
+  a full stop-all + start-all cycle (30-60s per retry), which could
+  hang for minutes if the network was still flaky. Restart is now
+  reserved for `server_error` / `bad_gateway`, where the API process
+  is actually unhealthy. For `network_error` the retry loop waits
+  the backoff and retries with the same agents.
+
 ### Changed
 
 - **Continuation nudge now repeats up to 3 times.** If the Executor

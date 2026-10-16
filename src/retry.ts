@@ -17,6 +17,22 @@
 
 import { OrchestratorResult, StopReason } from './types';
 
+/**
+ * Decide whether a retry attempt should restart the API agents.
+ *
+ *   server_error / bad_gateway — the API process itself is unhealthy.
+ *     Restarting clears state and gives a fresh Chromium.
+ *
+ *   network_error — the connection between the extension host and the
+ *     API dropped mid-request. The agents are usually healthy; a
+ *     restart costs 30-60s and, if the underlying network is still
+ *     flaky, may itself hang waiting for Chromium init. Skip the
+ *     restart, let the backoff sleep and the next attempt decide.
+ */
+export function shouldRestartAgentsOnRetry(reason: StopReason): boolean {
+  return reason === 'server_error' || reason === 'bad_gateway';
+}
+
 export interface RetryOptions {
   /** Wall-clock start of the whole task (ms since epoch). */
   taskStartedAt: number;
