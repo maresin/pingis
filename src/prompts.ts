@@ -167,8 +167,9 @@ WORK PROTOCOL (for multi-stage tasks):
    - At the start of the task, check via execute whether
      .pingis/plan.md exists.
    - If the file exists and its "## Goal" section matches the current task —
-     do NOT create a new plan. Read the file, find the first incomplete
-     item (- [ ]) and continue from it. Notify the Critic:
+     do NOT create a new plan. Read the file. Find the first stage
+     not marked [x] (that is, the first - [ ] or - [~]) and continue
+     from it. Notify the Critic:
        send_message(to="critic", message="RESUME: continuing from stage N/M.
        Already done: <brief>. Continuing with <stage name>.")
      Wait for APPROVE_PLAN and proceed.
@@ -201,6 +202,12 @@ WORK PROTOCOL (for multi-stage tasks):
    Keep iterating until you both agree. If the discussion is not
    converging after several honest rounds, send HELP instead of
    repeating yourself.
+
+   Stage wording: make each stage's intent visible at a glance, so
+   the [x] / [~] decision is unambiguous when you mark it later:
+     - "Run X" / "Collect data on X" — the action is the goal.
+     - "Get X passing" / "Fix X" / "Implement X" — the outcome is
+       the goal.
 
    After APPROVE_PLAN — create .pingis/plan.md with one execute:
      import pathlib
@@ -298,16 +305,33 @@ WORK PROTOCOL (for multi-stage tasks):
 
    IMMEDIATELY after APPROVE_STAGE — mark the stage in .pingis/plan.md.
    Do this BEFORE starting the next stage, not at the end of the task,
-   not deferred. The checkboxes are the only reliable resume signal
-   after a crash: if the task is interrupted and restarted, the file
-   is what tells you (and the Critic) where to continue. A plan with
-   all checkboxes empty is ambiguous — it looks like nothing was done,
-   even when stages 1-3 are already on disk.
+   not deferred. The marks are the only reliable resume signal after a
+   crash: if the task is interrupted and restarted, the file is what
+   tells you (and the Critic) where to continue.
+
+   Three markers are available:
+     - [ ]  not started
+     - [~]  attempted but not resolved — partially done, blocked, or
+            the stage's goal is not achieved. A resume reader will
+            continue from the first stage that is not [x], so [~]
+            stages are revisited on the next run.
+     - [x]  complete, goal achieved.
+
+   Which to use:
+     * For "run X / observe X / collect data on X" stages: the action
+       itself is the goal. Mark [x] once the run happened, regardless
+       of its result. Follow-up handling of a failed run belongs in a
+       separate diagnosis/fix stage.
+     * For "get X passing / fix X / implement X" stages: mark [x]
+       only when the goal is actually achieved. Otherwise [~].
+     * If you finish part of a stage and move on: [~], not [x].
 
      import pathlib
      p = pathlib.Path(".pingis/plan.md")
      s = p.read_text(encoding="utf-8")
-     s = s.replace("- [ ] N.", "- [x] N.")   # N — number of completed stage
+     s = s.replace("- [ ] N.", "- [x] N.")   # N — stage number, complete
+     # or, for a stage not fully resolved:
+     # s = s.replace("- [ ] N.", "- [~] N.")
      p.write_text(s, encoding="utf-8")
    If you made an important architectural decision — add it to the
    "## Key Decisions" section with the same execute.
@@ -428,9 +452,14 @@ PROCESSING MESSAGES FROM THE EXECUTOR:
 "RESUME: continuing from stage N/M...":
   1. Read .pingis/plan.md via execute to see the full picture: goal,
      stages, what's already done, key decisions.
+     Stage markers in the file:
+       [ ]  not started
+       [~]  attempted, not resolved — the Executor plans to revisit it
+       [x]  complete
   2. Reply: "APPROVE_PLAN" (+ reminder that you will check progress
-     at the next STAGE). Do not try to re-verify completed stages —
-     trust the [x] marks in the file.
+     at the next STAGE). Do not try to re-verify completed [x] stages —
+     trust the marks in the file. If a [~] stage is present, confirm
+     that the Executor's plan actually revisits it.
 
 "STAGE N/M DONE: ...":
   1. Read the mentioned files, run checks if needed.

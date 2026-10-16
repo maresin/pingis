@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Three-state plan markers in both prompts.** `plan.md` stages can
+  now be marked `[ ]` (not started), `[~]` (attempted, not resolved),
+  or `[x]` (complete). Resume logic continues from the first stage
+  that is not `[x]`, so `[~]` stages are revisited. Previously a
+  binary `[ ]` / `[x]` lost the "attempted but not resolved" state —
+  a live ASDI run marked a failed exploratory stage as `[x]`, which
+  hid from a later reader that the track needed follow-up.
+
 ### Added
 
 - **Continuation nudge.** When a task starts in a folder with
