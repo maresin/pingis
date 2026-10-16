@@ -187,11 +187,15 @@ async function main() {
       && e.to === 'critic'
       && String(e.message ?? '').startsWith('HELP:')
   );
+  // After step 51b, HELP_RESPONSE is wrapped with a
+  // "Return to your original task" preamble before delivery, so the
+  // route message no longer starts with the HELP_RESPONSE: marker.
+  // Use `includes` — the marker is still inside the wrapped message.
   const helpResponseRoute = lines.find(
     e => e.event === 'route'
       && e.from === 'critic'
       && e.to === 'executor'
-      && String(e.message ?? '').startsWith('HELP_RESPONSE:')
+      && String(e.message ?? '').includes('HELP_RESPONSE:')
   );
   const stopEvent = lines.find(e => e.event === 'stop');
   const helpEvent = lines.find(

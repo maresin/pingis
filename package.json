@@ -92,7 +92,8 @@
     "probe:exec": "ts-node --project scripts/tsconfig.json scripts/probe-exec.ts",
     "probe:artifacts": "ts-node --project scripts/tsconfig.json scripts/probe-artifacts.ts",
     "probe:retry": "ts-node --project scripts/tsconfig.json scripts/probe-retry.ts",
-    "probe:phase": "ts-node --project scripts/tsconfig.json scripts/probe-phase.ts"
+    "probe:phase": "ts-node --project scripts/tsconfig.json scripts/probe-phase.ts",
+    "probe:return-to-original": "ts-node --project scripts/tsconfig.json scripts/probe-return-to-original.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

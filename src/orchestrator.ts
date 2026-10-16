@@ -1021,11 +1021,34 @@ export class Orchestrator {
       }
       this.panel.setStatus(who, 'send_message');
       const target = to === 'critic' ? this.queueC : this.queueE;
-      target.push({ msg: { role: 'user', content: message } });
+
+      // For HELP_RESPONSE, restore the recipient's original framing of
+      // the task instead of forwarding the suggestion as the next
+      // request. Without this, the recipient's "current request" becomes
+      // another layer of HELP chatter, and the original task drifts out
+      // of focus over several HELP rounds. See step 51 design notes.
+      let outMessage = message;
+      if (phase === 'HELP_RESPONSE') {
+        const otherOriginal = to === 'executor'
+          ? this.originalE
+          : this.originalC;
+        if (otherOriginal) {
+          outMessage =
+            'Return to your original task.\n\n' +
+            'Original request:\n' +
+            otherOriginal +
+            '\n\nSuggestion from ' + who + ':\n' +
+            message +
+            '\n\nResume with the original request. If the suggestion ' +
+            'does not help, say so in one line and continue on your own.';
+        }
+      }
+
+      target.push({ msg: { role: 'user', content: outMessage } });
       this.log.event('orchestrator', 'route', {
         from: who,
         to,
-        message
+        message: outMessage
       });
       return true;
     }

@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- `HELP_RESPONSE` messages now carry a "Return to your original task"
+  preamble: the orchestrator restores the recipient's original framing
+  of the task (captured when it sent `HELP:`) instead of forwarding the
+  suggestion as the next request. Over several HELP rounds, this keeps
+  the agent focused on the task rather than on the HELP exchange.
+
 ### Changed
 
 - `StopReason` split: an agent's `IMPOSSIBLE` now stops the task with
